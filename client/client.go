@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	initalReconnectDelay = 1
+	initalReconnectDelay = 0
 )
 
 var (
@@ -26,19 +26,26 @@ type Client struct {
 }
 
 func reconnect(server string, next int64) {
-	if next < 1 {
+	if next < 0 {
 		return
 	}
 	next = next * 2
-	fmt.Printf("Reconnecting in %ds...\n", next)
+	if next > 0 {
+		fmt.Printf("Reconnecting in %ds...\n", next)
+	} else {
+		fmt.Println("Reconnecting...")
+	}
 	time.Sleep(time.Duration(next) * time.Second)
-	connect(server, next)
+	connect(server, next, false)
 }
 
-func connect(server string, next int64) {
+func connect(server string, next int64, firstConnection bool) {
 	conn, err := net.Dial("tcp4", server)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println(err.Error())
+		if firstConnection {
+			return
+		}
 		reconnect(server, next)
 	}
 	next = initalReconnectDelay
@@ -83,5 +90,5 @@ func main() {
 	if !*disableAutoReconnect {
 		next = initalReconnectDelay
 	}
-	connect(*server, next)
+	connect(*server, next, true)
 }

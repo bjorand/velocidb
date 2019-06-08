@@ -3,11 +3,11 @@ package vql
 import (
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/bjorand/velocidb/peering"
 	tcp "github.com/bjorand/velocidb/tcp"
+	utils "github.com/bjorand/velocidb/utils"
 )
 
 var (
@@ -74,19 +74,12 @@ func (q *Query) Execute() (*Response, error) {
 			if len(q.words()) < 3 {
 				return nil, fmt.Errorf(Help("peer"))
 			}
-			host, portS, err := net.SplitHostPort(q.words()[2])
+			host, port, err := utils.SplitHostPort(q.words()[2])
 			if err != nil {
-				return nil, fmt.Errorf("-%s", err)
+				return nil, err
 			}
-			port, err := strconv.ParseInt(portS, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("-Invalid port number: %s", err)
-			}
-			errConnect := q.v.Peer.ConnectToPeer(&peering.Peer{ListenAddr: host, ListenPort: port})
-			if errConnect != nil {
-				return nil, errConnect
-			}
-			r.Payload = fmt.Sprintf("Connected to peer %s:%d", host, port)
+			go q.v.Peer.ConnectToPeerAddr(q.words()[2])
+			r.Payload = fmt.Sprintf("Connecting to peer %s:%d\n", host, port)
 			return r, nil
 		case "list":
 			for _, peer := range q.v.Peer.Peering.Peers {
@@ -120,18 +113,18 @@ func (v *VQLTCPServer) Run() {
 	if err != nil {
 		panic(err)
 	}
-	s.Run(v.HandleVQLRequest)
+	s.Run("vql", v.HandleVQLRequest)
 }
 
 func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
-	fmt.Printf("Serving %s\n", conn.RemoteAddr().String())
+	fmt.Printf("[vql] Serving %s\n", conn.RemoteAddr().String())
 	// Make a buffer to hold incoming data.
 	for {
 		buf := make([]byte, 1024)
 		// Read the incoming connection into the buffer.
 		reqLen, err := conn.Read(buf)
 		if err != nil {
-			fmt.Println("-Error reading:", err.Error())
+			fmt.Println("[vql] -Error reading:", err.Error())
 			break
 		}
 		query, err := v.ParseRawQuery(buf[:reqLen])
@@ -150,8 +143,9 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 		}
 	}
 	conn.Close()
-	fmt.Printf("Connection closed %s\n", conn.RemoteAddr().String())
+	fmt.Printf("[vql] Connection closed %s\n", conn.RemoteAddr().String())
 }
 
 func (v *VQLTCPServer) Shutdown() {
+	fmt.Println("[vql] shutdown")
 }

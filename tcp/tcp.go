@@ -20,20 +20,20 @@ func NewTCPServer(host string, port int64) (*TCPServer, error) {
 	}, nil
 }
 
-func (s *TCPServer) Run(handleRequesFunc func(*TCPServer, net.Conn)) {
+func (s *TCPServer) Run(id string, handleRequesFunc func(*TCPServer, net.Conn)) {
 	l, err := net.Listen("tcp4", fmt.Sprintf("%s:%d", s.Host, s.Port))
 	if err != nil {
-		fmt.Println("Error listening:", err.Error())
+		fmt.Printf("[%s] Error listening: %s\n", id, err.Error())
 		os.Exit(1)
 	}
 	defer l.Close()
 	rand.Seed(time.Now().Unix())
-	fmt.Printf("Listening on %s:%d\n", s.Host, s.Port)
+	fmt.Printf("[%s] Listening on:%d\n", id, s.Port)
 	for {
 		// Listen for an incoming connection.
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting: ", err.Error())
+			fmt.Printf("[%s] Error accepting: %s\n", id, err.Error())
 			os.Exit(1)
 		}
 		// Handle connections in a new goroutine.
