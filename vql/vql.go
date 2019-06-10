@@ -22,6 +22,7 @@ type Query struct {
 type Response struct {
 	Payload          string
 	DisconnectSignal bool
+	SimpleString     bool
 }
 
 func Sanitize(data []byte) string {
@@ -40,7 +41,11 @@ func ParseRawResponse(data []byte) (*Response, error) {
 
 func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 	text := Sanitize(data)
-
+	if strings.HasPrefix(text, "*1") {
+		// wire array detected
+		s := strings.Split(text, "\r\n")
+		text = s[2]
+	}
 	return &Query{
 		text: text,
 		v:    v,
@@ -52,11 +57,19 @@ func (q *Query) words() []string {
 }
 
 func (q *Query) verb() string {
-	return q.words()[0]
+	return strings.ToLower(q.words()[0])
 }
 
 func (q *Query) args() []string {
 	return q.words()[1:]
+}
+
+func (q *Query) Set(key string, value []byte) {
+	fmt.Println(key, value)
+}
+
+func (q *Query) Get(key string) []byte {
+	return []byte("1")
 }
 
 func (q *Query) Execute() (*Response, error) {
@@ -111,6 +124,31 @@ func (q *Query) Execute() (*Response, error) {
 				return nil
 			},
 		},
+		"ping": {
+			"": func() error {
+				r.Payload += "+PONG\r\n"
+				r.SimpleString = true
+				return nil
+			},
+		},
+		"set": {
+			"*": func() error {
+				if len(args) < 2 {
+					return fmt.Errorf("Too few arguments")
+				}
+				q.Set(args[0], []byte(strings.Join(args[1:], " ")))
+				return nil
+			},
+		},
+		"get": {
+			"*": func() error {
+				if len(args) < 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				r.Payload = string(q.Get(args[0]))
+				return nil
+			},
+		},
 		"quit": {
 			"": func() error {
 				r.DisconnectSignal = true
@@ -127,7 +165,14 @@ func (q *Query) Execute() (*Response, error) {
 	verb := syntax[q.verb()]
 
 	if len(args) > 0 {
-		f := syntax[q.verb()][args[0]]
+		if verb["*"] != nil {
+			err := verb["*"]()
+			if err != nil {
+				return nil, err
+			}
+			return r, nil
+		}
+		f := verb[args[0]]
 		if f != nil {
 			err := f()
 			return r, err
@@ -166,6 +211,10 @@ func (v *VQLTCPServer) Run() {
 	s.Run("vql", v.HandleVQLRequest)
 }
 
+func (r *Response) Size() int {
+	return len(r.Payload)
+}
+
 func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 	fmt.Printf("[vql] Serving %s\n", conn.RemoteAddr().String())
 	// Make a buffer to hold incoming data.
@@ -187,7 +236,10 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 			conn.Write([]byte(fmt.Sprintf("-%s\n", err.Error())))
 			continue
 		}
-		conn.Write([]byte(fmt.Sprintf("%s\n", resp.Payload)))
+		if !resp.SimpleString {
+			conn.Write([]byte(fmt.Sprintf("$%d\r\n", resp.Size())))
+		}
+		conn.Write([]byte(resp.Payload))
 		if resp.DisconnectSignal {
 			break
 		}
