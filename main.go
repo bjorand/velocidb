@@ -94,7 +94,6 @@ func main() {
 		for _, peerAddr := range config.peersAddr {
 			peer.ConnectToPeerAddr(peerAddr)
 		}
-
 	}()
 
 	go peer.Run()

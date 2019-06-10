@@ -2,10 +2,52 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/armon/go-metrics"
+  packages = ["."]
+  revision = "ec5e00d3c878b2a97bbe0884ef45ffd1b4f669f5"
+
+[[projects]]
   name = "github.com/google/uuid"
   packages = ["."]
   revision = "0cd6bf5da1e1c83f8b45653022c74f71af0538a4"
   version = "v1.1.1"
+
+[[projects]]
+  name = "github.com/hashicorp/consul"
+  packages = ["api"]
+  revision = "40cec98468b829e5cdaacb0629b3e23a028db688"
+  version = "v1.5.1"
+
+[[projects]]
+  name = "github.com/hashicorp/go-cleanhttp"
+  packages = ["."]
+  revision = "eda1e5db218aad1db63ca4642c8906b26bcf2744"
+  version = "v0.5.1"
+
+[[projects]]
+  name = "github.com/hashicorp/go-immutable-radix"
+  packages = ["."]
+  revision = "7dd1121b595e4e1bd6dd5caa78e0f5c454740379"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/hashicorp/go-rootcerts"
+  packages = ["."]
+  revision = "63503fb4e1eca22f9ae0f90b49c5d5538a0e87eb"
+  version = "v1.0.0"
+
+[[projects]]
+  name = "github.com/hashicorp/golang-lru"
+  packages = ["simplelru"]
+  revision = "7087cb70de9f7a8bc0a10c375cb0d2280a8edf9c"
+  version = "v0.5.1"
+
+[[projects]]
+  name = "github.com/hashicorp/serf"
+  packages = ["coordinate"]
+  revision = "15cfd05de3dffb3664aa37b06e91f970b825e380"
+  version = "v0.8.3"
 
 [[projects]]
   name = "github.com/mattn/go-runewidth"
@@ -14,14 +56,26 @@
   version = "v0.0.4"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/nsf/termbox-go"
+  name = "github.com/mitchellh/go-homedir"
   packages = ["."]
-  revision = "288510b9734e30e7966ec2f22b87c5f8e67345e3"
+  revision = "af06845cf3004701891bf4fdb884bfe4920b3727"
+  version = "v1.1.0"
+
+[[projects]]
+  name = "github.com/mitchellh/mapstructure"
+  packages = ["."]
+  revision = "3536a929edddb9a5b34bd6861dc4a9647cb459fe"
+  version = "v1.1.2"
+
+[[projects]]
+  name = "github.com/peterh/liner"
+  packages = ["."]
+  revision = "5a0dfa99e2aa1d433a9642e863da51402e609376"
+  version = "v1.1.0"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "77af27e252c4afd334aa93ddc7e049bb89b3a635cf22e5b9799a8e1e92f7b811"
+  inputs-digest = "592852455fe8497b5b9faabc0074a4bd93ec7dd74d7caeac2c3b4a80a0cc55dd"
   solver-name = "gps-cdcl"
   solver-version = 1

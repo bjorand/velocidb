@@ -7,7 +7,7 @@ import (
 
 	"github.com/bjorand/velocidb/peering"
 	tcp "github.com/bjorand/velocidb/tcp"
-	utils "github.com/bjorand/velocidb/utils"
+	"github.com/bjorand/velocidb/utils"
 )
 
 var (
@@ -55,43 +55,93 @@ func (q *Query) verb() string {
 	return q.words()[0]
 }
 
+func (q *Query) args() []string {
+	return q.words()[1:]
+}
+
 func (q *Query) Execute() (*Response, error) {
 	r := &Response{}
-	switch q.verb() {
-	case "quit":
-		r.DisconnectSignal = true
-		r.Payload = "+ATH0"
-		return r, nil
-	case "help":
-		return nil, fmt.Errorf(Help(""))
-	case "peer":
-		if len(q.words()) == 1 {
-			return nil, fmt.Errorf(Help("peer"))
-		}
-		arg := q.words()[1]
-		switch arg {
-		case "connect":
-			if len(q.words()) < 3 {
-				return nil, fmt.Errorf(Help("peer"))
-			}
-			host, port, err := utils.SplitHostPort(q.words()[2])
-			if err != nil {
-				return nil, err
-			}
-			go q.v.Peer.ConnectToPeerAddr(q.words()[2])
-			r.Payload = fmt.Sprintf("Connecting to peer %s:%d\n", host, port)
-			return r, nil
-		case "list":
-			for _, peer := range q.v.Peer.Peering.Peers {
-				r.Payload += fmt.Sprintf("%s:%d\n", peer.ListenAddr, peer.ListenPort)
-			}
-			return r, nil
-		default:
-			return nil, fmt.Errorf(Help("peer"))
-		}
-	default:
-		return nil, fmt.Errorf("-ERR unknown command '%s'", q.verb())
+	args := q.args()
+	syntax := map[string]map[string]func() error{
+		"peer": {
+			"list": func() error {
+				for _, peer := range q.v.Peer.Peers {
+					r.Payload += fmt.Sprintf("*%s\t%s:%d\tConnection:%s\tBytesIn:%s\n",
+						peer.ID,
+						peer.ListenAddr,
+						peer.ListenPort,
+						peer.ConnectionStatus(),
+						utils.HumanSizeBytes(peer.Stats.BytesIn),
+					)
+				}
+				return nil
+			},
+			"connect": func() error {
+				if len(args) < 2 {
+					return fmt.Errorf(Help("peer"))
+				}
+				host, port, err := utils.SplitHostPort(args[1])
+				if err != nil {
+					return err
+				}
+				go func() {
+					q.v.Peer.ConnectToPeerAddr(args[1])
+				}()
+				r.Payload = fmt.Sprintf("Connecting to peer %s:%d\n", host, port)
+				return nil
+			},
+			"remove": func() error {
+				if len(args) < 2 {
+					return fmt.Errorf(Help("peer"))
+				}
+				peer := q.v.Peer.Peers[args[1]]
+				if peer != nil {
+					q.v.Peer.RemovePeer(peer)
+					r.Payload = "+OK"
+					return nil
+				}
+				return fmt.Errorf("Peer %s not found in peer list", args[1])
+			},
+		},
+		"info": {
+			"": func() error {
+				for k, v := range q.v.Peer.Info() {
+					r.Payload += fmt.Sprintf("%s\t%+v\n", k, v)
+				}
+				return nil
+			},
+		},
+		"quit": {
+			"": func() error {
+				r.DisconnectSignal = true
+				r.Payload = "+ATH0"
+				return nil
+			},
+		},
+		"help": {
+			"": func() error {
+				return fmt.Errorf(Help(""))
+			},
+		},
 	}
+	verb := syntax[q.verb()]
+
+	if len(args) > 0 {
+		f := syntax[q.verb()][args[0]]
+		if f != nil {
+			err := f()
+			return r, err
+		}
+		return nil, fmt.Errorf("ERR unknown command '%s %s'", q.verb(), args[0])
+	}
+	if verb[""] == nil {
+		return nil, fmt.Errorf("ERR unknown command '%s'", q.verb())
+	}
+	if len(q.args()) == 0 {
+		err := syntax[q.verb()][""]()
+		return r, err
+	}
+	return nil, nil
 }
 
 type VQLTCPServer struct {
