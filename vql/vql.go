@@ -3,6 +3,7 @@ package vql
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/bjorand/velocidb/peering"
@@ -11,8 +12,12 @@ import (
 )
 
 var (
-	verbs = []string{"quit", "peer"}
+	verbs          = []string{"quit", "peer"}
+	firstByteArray = []byte("*")
+	endByte        = []byte("\r\n")
 )
+
+const ()
 
 type Query struct {
 	text string
@@ -39,13 +44,53 @@ func ParseRawResponse(data []byte) (*Response, error) {
 	return r, nil
 }
 
-func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
-	text := Sanitize(data)
-	if strings.HasPrefix(text, "*1") {
-		// wire array detected
-		s := strings.Split(text, "\r\n")
-		text = s[2]
+func readInt(data []byte, cursor int) (int, int) {
+	for i, d := range data {
+		if d == endByte[0] && data[i+1] == endByte[1] {
+			eC := string(data[0:i])
+			elementsCount, err := strconv.Atoi(eC)
+			if err != nil {
+				break
+			}
+			cursor += i + len(endByte)
+			return elementsCount, cursor
+		}
 	}
+
+	return -1, cursor
+}
+
+func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
+	// text := Sanitize(data)
+	var text string
+	var readCur int
+	var bytesToRead int
+	var elementsCount int
+	var initialRow int
+
+	for i, d := range data {
+
+		if d == '*' {
+			readCur = i + 1
+			elementsCount, readCur = readInt(data[readCur:], readCur)
+			for row := initialRow; row < elementsCount; row++ {
+				if data[readCur] == '$' {
+					readCur++
+					bytesToRead, readCur = readInt(data[readCur:], readCur)
+					if len(text) > 0 {
+						text += " "
+					}
+					text += string(data[readCur : readCur+bytesToRead])
+					readCur += bytesToRead + len(endByte)
+				}
+			}
+		} else {
+			text = Sanitize(data)
+		}
+		break
+
+	}
+
 	return &Query{
 		text: text,
 		v:    v,
