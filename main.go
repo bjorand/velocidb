@@ -3,8 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"runtime/pprof"
 	"strings"
+	"syscall"
 
 	peering "github.com/bjorand/velocidb/peering"
 	utils "github.com/bjorand/velocidb/utils"
@@ -17,6 +21,7 @@ const (
 )
 
 var (
+	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
 	listenPeerFlag = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
 	listenVQLFlag  = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
 	peers          = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")
@@ -72,6 +77,28 @@ func (c *Config) FlagsOverride() {
 
 func main() {
 	flag.Parse()
+	signalChan := make(chan os.Signal, 1)
+	quit := make(chan struct{})
+	signal.Notify(signalChan, syscall.SIGTERM)
+	signal.Notify(signalChan, syscall.SIGINT)
+	signal.Notify(signalChan, syscall.SIGKILL)
+	// signal.Notify(signalChan, os.)
+	go func() {
+		q := <-signalChan
+		log.Printf("Signal %+v received", q)
+		close(quit)
+		return
+	}()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		log.Println("CPU profiler enabled")
+		defer pprof.StopCPUProfile()
+	}
 	config := Config{}
 	config.SetDefault()
 	config.FromEnvironment()
@@ -102,6 +129,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	v.Run()
+	go v.Run()
 	defer v.Shutdown()
+	<-quit
+	log.Println("Clean shutdown done")
 }

@@ -7,19 +7,23 @@ import (
 	"strings"
 
 	"github.com/bjorand/velocidb/peering"
+	storagePkg "github.com/bjorand/velocidb/storage"
 	tcp "github.com/bjorand/velocidb/tcp"
 	"github.com/bjorand/velocidb/utils"
+	"github.com/google/uuid"
 )
 
 var (
 	verbs          = []string{"quit", "peer"}
 	firstByteArray = []byte("*")
 	endByte        = []byte("\r\n")
+	storage        *storagePkg.MemoryStorage
 )
 
 const ()
 
 type Query struct {
+	id   string
 	text string
 	v    *VQLTCPServer
 }
@@ -90,8 +94,12 @@ func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 		break
 
 	}
-
+	id, err := uuid.NewUUID()
+	if err != nil {
+		panic(err)
+	}
 	return &Query{
+		id:   id.String(),
 		text: text,
 		v:    v,
 	}, nil
@@ -110,11 +118,11 @@ func (q *Query) args() []string {
 }
 
 func (q *Query) Set(key string, value []byte) {
-	fmt.Println(key, value)
+	storage.Set(key, value)
 }
 
 func (q *Query) Get(key string) []byte {
-	return []byte("1")
+	return storage.Get(key)
 }
 
 func (q *Query) Execute() (*Response, error) {
@@ -171,8 +179,7 @@ func (q *Query) Execute() (*Response, error) {
 		},
 		"ping": {
 			"": func() error {
-				r.Payload += "+PONG\r\n"
-				r.SimpleString = true
+				r.Payload += "+PONG"
 				return nil
 			},
 		},
@@ -182,6 +189,7 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too few arguments")
 				}
 				q.Set(args[0], []byte(strings.Join(args[1:], " ")))
+				r.Payload = "+OK"
 				return nil
 			},
 		},
@@ -191,6 +199,7 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too many arguments")
 				}
 				r.Payload = string(q.Get(args[0]))
+				r.SimpleString = true
 				return nil
 			},
 		},
@@ -241,11 +250,17 @@ type VQLTCPServer struct {
 }
 
 func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*VQLTCPServer, error) {
-	return &VQLTCPServer{
+	v := &VQLTCPServer{
 		Peer:       peer,
 		ListenAddr: listenAddr,
 		ListenPort: listenPort,
-	}, nil
+	}
+	storage = v.StorageInit()
+	return v, nil
+}
+
+func (v *VQLTCPServer) StorageInit() *storagePkg.MemoryStorage {
+	return storagePkg.NewMemoryStorage()
 }
 
 func (v *VQLTCPServer) Run() {
@@ -258,6 +273,16 @@ func (v *VQLTCPServer) Run() {
 
 func (r *Response) Size() int {
 	return len(r.Payload)
+}
+
+func (r *Response) FormattedPayload() []byte {
+	var payload []byte
+	if r.SimpleString {
+		payload = []byte(fmt.Sprintf("$%d\r\n", r.Size()))
+	}
+	payload = append(payload, r.Payload...)
+	payload = append(payload, "\r\n"...)
+	return payload
 }
 
 func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
@@ -281,10 +306,7 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 			conn.Write([]byte(fmt.Sprintf("-%s\n", err.Error())))
 			continue
 		}
-		if !resp.SimpleString {
-			conn.Write([]byte(fmt.Sprintf("$%d\r\n", resp.Size())))
-		}
-		conn.Write([]byte(resp.Payload))
+		conn.Write(resp.FormattedPayload())
 		if resp.DisconnectSignal {
 			break
 		}
