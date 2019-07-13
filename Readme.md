@@ -22,9 +22,9 @@ More details about Velocidb engine:
 Velocidb is in early development. We support a small subset of the Redis protocol to validate Velocidb distributed models.
 
 Here is a list of Redis "compatible" commands:
-- PING
-- GET <key>
-- SET <key> <value>
+- `PING`
+- `GET <key>`
+- `SET <key> <value>`
 
 ### Data storage
 
