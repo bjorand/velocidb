@@ -1,0 +1,48 @@
+version: "2"
+services:
+  pre_server:
+    build:
+      context: .
+      dockerfile: Dockerfile.pre
+    image: velocidb/pre_server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: velocidb/server
+  consul00:
+    image: consul
+    ports:
+      - "18500:8500"
+  peer00:
+      environment:
+        CONSUL_ADDR: consul00:8500
+      image: velocidb/server
+      ports:
+        - "14300:4300"
+      command:
+        - velocidb
+      depends_on:
+        - consul00
+  peer01:
+      environment:
+        CONSUL_ADDR: consul00:8500
+        PEER_LISTEN: 0.0.0.0:24301
+      image: velocidb/server
+      ports:
+        - "24300:4300"
+      command:
+        - velocidb
+      depends_on:
+        - consul00
+  peer02:
+      environment:
+        CONSUL_ADDR: consul00:8500
+        PEER_LISTEN: 0.0.0.0:34301
+      image: velocidb/server
+      ports:
+        - "34300:4300"
+      command:
+        - velocidb
+      depends_on:
+        - consul00

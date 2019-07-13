@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	peering "github.com/bjorand/velocidb/peering"
+	consul "github.com/bjorand/velocidb/peering/consul"
 	utils "github.com/bjorand/velocidb/utils"
 	vql "github.com/bjorand/velocidb/vql"
 )
@@ -20,12 +21,14 @@ var (
 	listenPeerFlag = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
 	listenVQLFlag  = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
 	peers          = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")
+	consulAddr     = flag.String("consul-addr", "", "Consul agent address addr:port")
 )
 
 type Config struct {
 	listenPeer string
 	listenVQL  string
 	peersAddr  []string
+	consulAddr string
 }
 
 func cleanPeersInput(input string) (peers []string) {
@@ -54,6 +57,8 @@ func (c *Config) FromEnvironment() {
 			c.listenVQL = envValue
 		case "PEERS":
 			c.peersAddr = cleanPeersInput(envValue)
+		case "CONSUL_ADDR":
+			c.consulAddr = envValue
 		}
 	}
 }
@@ -67,6 +72,9 @@ func (c *Config) FlagsOverride() {
 	}
 	if *peers != "" {
 		c.peersAddr = cleanPeersInput(*peers)
+	}
+	if *consulAddr != "" {
+		c.consulAddr = *consulAddr
 	}
 }
 
@@ -89,6 +97,9 @@ func main() {
 	peer, err := peering.NewPeer(hostPeer, portPeer)
 	if err != nil {
 		panic(err)
+	}
+	if config.consulAddr != "" {
+		go consul.RegisterPeerService(peer.ID, "velocidb-peer", config.listenPeer, config.consulAddr)
 	}
 	go func() {
 		for _, peerAddr := range config.peersAddr {

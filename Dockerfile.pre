@@ -1,0 +1,7 @@
+FROM golang
+
+COPY . /go/src/github.com/bjorand/velocidb
+
+WORKDIR /go/src/github.com/bjorand/velocidb
+
+RUN make dep
