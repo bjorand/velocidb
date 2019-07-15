@@ -22,6 +22,7 @@ const (
 
 var (
 	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
+	walDir         = flag.String("wal-dir", "/var/lib/velocidb/wals", "WAL storage directory")
 	listenPeerFlag = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
 	listenVQLFlag  = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
 	peers          = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")

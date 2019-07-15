@@ -18,33 +18,60 @@ var (
 	firstByteArray = []byte("*")
 	endByte        = []byte("\r\n")
 	storage        *storagePkg.MemoryStorage
+	walWriter      *storagePkg.WalFileWriter
 )
 
 const ()
 
 type Query struct {
+	raw  []byte
 	id   string
 	text string
 	v    *VQLTCPServer
 }
 
 type Response struct {
-	Payload          string
+	Payload          [][]byte
 	DisconnectSignal bool
-	SimpleString     bool
+	Bulk             bool
+	Array            bool
 }
 
-func Sanitize(data []byte) string {
+func NewResponse() *Response {
+	return &Response{
+		// Payload: make([][]byte),
+	}
+}
+
+func (r *Response) PayloadString(s []byte) {
+	r.Payload = make([][]byte, 1)
+	r.Payload[0] = s
+}
+
+func (r *Response) OK() {
+	r.PayloadString([]byte("OK"))
+}
+
+func SanitizeTextInput(data []byte) string {
 	d := string(data)
-	return strings.Trim(d, " \r\n")
+	d = strings.Trim(d, " \r\n")
+	return d
+}
+
+func Sanitize(data []byte) []byte {
+	// d := string(data)
+	// return strings.Trim(d, " \r\n")
+	return data
 }
 
 func ParseRawResponse(data []byte) (*Response, error) {
-	r := &Response{}
-	r.Payload = Sanitize(data)
-	if r.Payload == "+ATH0" {
-		r.DisconnectSignal = true
+	r := NewResponse()
+	if len(r.Payload) > 0 {
+		r.Payload[0] = Sanitize(data)
 	}
+	// if r.Payload == "+ATH0" {
+	// 	r.DisconnectSignal = true
+	// }
 	return r, nil
 }
 
@@ -89,7 +116,7 @@ func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 				}
 			}
 		} else {
-			text = Sanitize(data)
+			text = SanitizeTextInput(data)
 		}
 		break
 
@@ -99,6 +126,7 @@ func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 		panic(err)
 	}
 	return &Query{
+		raw:  data,
 		id:   id.String(),
 		text: text,
 		v:    v,
@@ -125,20 +153,24 @@ func (q *Query) Get(key string) []byte {
 	return storage.Get(key)
 }
 
+func (q *Query) WalWrite() {
+	walWriter.SyncWrite(q.raw)
+}
+
 func (q *Query) Execute() (*Response, error) {
-	r := &Response{}
+	r := NewResponse()
 	args := q.args()
 	syntax := map[string]map[string]func() error{
 		"peer": {
 			"list": func() error {
 				for _, peer := range q.v.Peer.Peers {
-					r.Payload += fmt.Sprintf("*%s\t%s:%d\tConnection:%s\tBytesIn:%s\n",
+					r.Payload = append(r.Payload, []byte(fmt.Sprintf("*%s\t%s:%d\tConnection:%s\tBytesIn:%s\n",
 						peer.ID,
 						peer.ListenAddr,
 						peer.ListenPort,
 						peer.ConnectionStatus(),
 						utils.HumanSizeBytes(peer.Stats.BytesIn),
-					)
+					)))
 				}
 				return nil
 			},
@@ -153,7 +185,7 @@ func (q *Query) Execute() (*Response, error) {
 				go func() {
 					q.v.Peer.ConnectToPeerAddr(args[1])
 				}()
-				r.Payload = fmt.Sprintf("Connecting to peer %s:%d\n", host, port)
+				r.Payload[0] = []byte(fmt.Sprintf("Connecting to peer %s:%d\n", host, port))
 				return nil
 			},
 			"remove": func() error {
@@ -163,7 +195,7 @@ func (q *Query) Execute() (*Response, error) {
 				peer := q.v.Peer.Peers[args[1]]
 				if peer != nil {
 					q.v.Peer.RemovePeer(peer)
-					r.Payload = "+OK"
+					r.OK()
 					return nil
 				}
 				return fmt.Errorf("Peer %s not found in peer list", args[1])
@@ -172,14 +204,21 @@ func (q *Query) Execute() (*Response, error) {
 		"info": {
 			"": func() error {
 				for k, v := range q.v.Peer.Info() {
-					r.Payload += fmt.Sprintf("%s\t%+v\n", k, v)
+					r.Payload = append(r.Payload, []byte(fmt.Sprintf("%s\t%+v\n", k, v)))
 				}
 				return nil
 			},
 		},
 		"ping": {
 			"": func() error {
-				r.Payload += "+PONG"
+				r.PayloadString([]byte("PONG"))
+				return nil
+			},
+		},
+		"flushdb": {
+			"": func() error {
+				storage.FlushData()
+				r.OK()
 				return nil
 			},
 		},
@@ -189,7 +228,8 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too few arguments")
 				}
 				q.Set(args[0], []byte(strings.Join(args[1:], " ")))
-				r.Payload = "+OK"
+				q.WalWrite()
+				r.OK()
 				return nil
 			},
 		},
@@ -198,15 +238,27 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) < 1 {
 					return fmt.Errorf("Too many arguments")
 				}
-				r.Payload = string(q.Get(args[0]))
-				r.SimpleString = true
+				r.PayloadString([]byte(q.Get(args[0])))
+				r.Bulk = true
+				return nil
+			},
+		},
+		"keys": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				for _, k := range storage.Keys() {
+					r.Payload = append(r.Payload, []byte(k))
+				}
+				r.Array = true
 				return nil
 			},
 		},
 		"quit": {
 			"": func() error {
 				r.DisconnectSignal = true
-				r.Payload = "+ATH0"
+				r.Payload[0] = []byte("+ATH0")
 				return nil
 			},
 		},
@@ -256,6 +308,8 @@ func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*
 		ListenPort: listenPort,
 	}
 	storage = v.StorageInit()
+	walWriter = storagePkg.NewWalFileWriter("/tmp")
+	go walWriter.Run()
 	return v, nil
 }
 
@@ -264,6 +318,7 @@ func (v *VQLTCPServer) StorageInit() *storagePkg.MemoryStorage {
 }
 
 func (v *VQLTCPServer) Run() {
+	defer walWriter.Close()
 	s, err := tcp.NewTCPServer(v.ListenAddr, v.ListenPort)
 	if err != nil {
 		panic(err)
@@ -277,11 +332,23 @@ func (r *Response) Size() int {
 
 func (r *Response) FormattedPayload() []byte {
 	var payload []byte
-	if r.SimpleString {
-		payload = []byte(fmt.Sprintf("$%d\r\n", r.Size()))
+	if len(r.Payload) == 1 && !r.Array {
+		if r.Bulk {
+			payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
+			payload = append(payload, r.Payload[0]...)
+		} else {
+			payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
+		}
+		payload = append(payload, "\r\n"...)
+	} else {
+		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
+		for i := 0; i < len(r.Payload); i++ {
+			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
+			payload = append(payload, r.Payload[i]...)
+			payload = append(payload, []byte("\r\n")...)
+		}
+
 	}
-	payload = append(payload, r.Payload...)
-	payload = append(payload, "\r\n"...)
 	return payload
 }
 
@@ -298,12 +365,12 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 		}
 		query, err := v.ParseRawQuery(buf[:reqLen])
 		if err != nil {
-			conn.Write([]byte(fmt.Sprintf("-%s\n", err.Error())))
+			conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
 			continue
 		}
 		resp, err := query.Execute()
 		if err != nil {
-			conn.Write([]byte(fmt.Sprintf("-%s\n", err.Error())))
+			conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
 			continue
 		}
 		conn.Write(resp.FormattedPayload())

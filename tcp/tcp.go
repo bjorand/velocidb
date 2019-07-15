@@ -30,15 +30,11 @@ func (s *TCPServer) Run(id string, handleRequesFunc func(*TCPServer, net.Conn)) 
 	rand.Seed(time.Now().Unix())
 	fmt.Printf("[%s] Listening on:%d\n", id, s.Port)
 	for {
-		// Listen for an incoming connection.
 		conn, err := l.Accept()
 		if err != nil {
 			fmt.Printf("[%s] Error accepting: %s\n", id, err.Error())
 			os.Exit(1)
 		}
-		// Handle connections in a new goroutine.
-		// go s.handleRequest(conn)
-
 		go handleRequesFunc(s, conn)
 	}
 }

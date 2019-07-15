@@ -16,6 +16,10 @@ func NewMemoryStorage() *MemoryStorage {
 	return m
 }
 
+func (m *MemoryStorage) FlushData() {
+	m.data = make(map[string][]byte)
+}
+
 func (m *MemoryStorage) Set(k string, v []byte) {
 	lock.Lock()
 	m.data[k] = v
@@ -24,4 +28,11 @@ func (m *MemoryStorage) Set(k string, v []byte) {
 
 func (m *MemoryStorage) Get(k string) []byte {
 	return m.data[k]
+}
+
+func (m *MemoryStorage) Keys() (keys []string) {
+	for k := range m.data {
+		keys = append(keys, k)
+	}
+	return keys
 }

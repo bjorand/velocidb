@@ -10,4 +10,9 @@ func TestMemoryStorage(t *testing.T) {
 	if string(expected) != string(output) {
 		t.Errorf("want %+v, got %+v", expected, output)
 	}
+	outputK := m.Keys()[0]
+	expectedK := "key"
+	if string(expectedK) != string(outputK) {
+		t.Errorf("want %+v, got %+v", expectedK, outputK)
+	}
 }
