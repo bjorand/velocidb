@@ -1,6 +1,10 @@
 package storage
 
-import "sync"
+import (
+	"fmt"
+	"strconv"
+	"sync"
+)
 
 var (
 	lock = sync.RWMutex{}
@@ -22,12 +26,61 @@ func (m *MemoryStorage) FlushData() {
 
 func (m *MemoryStorage) Set(k string, v []byte) {
 	lock.Lock()
+	// TODO we could implement metrics to get locked time
 	m.data[k] = v
 	lock.Unlock()
 }
 
 func (m *MemoryStorage) Get(k string) []byte {
-	return m.data[k]
+	lock.RLock()
+	d := m.data[k]
+	lock.RUnlock()
+	return d
+}
+
+func (m *MemoryStorage) Incr(k string) ([]byte, error) {
+	lock.RLock()
+	s, ok := m.data[k]
+	lock.RUnlock()
+	if ok {
+		i, err := strconv.Atoi(string(s))
+		if err != nil {
+			return nil, err
+		}
+		i = i + 1
+		m.Set(k, []byte(fmt.Sprintf("%d", i)))
+		return []byte(fmt.Sprintf("%d", i)), nil
+	}
+	m.Set(k, []byte("1"))
+	return []byte("1"), nil
+}
+
+func (m *MemoryStorage) Decr(k string) ([]byte, error) {
+	lock.RLock()
+	s, ok := m.data[k]
+	lock.RUnlock()
+	if ok {
+		i, err := strconv.Atoi(string(s))
+		if err != nil {
+			return nil, err
+		}
+		i = i - 1
+		m.Set(k, []byte(fmt.Sprintf("%d", i)))
+		return []byte(fmt.Sprintf("%d", i)), nil
+	}
+	m.Set(k, []byte("-1"))
+	return []byte("-1"), nil
+}
+
+func (m *MemoryStorage) Del(k string) bool {
+	lock.Lock()
+	defer lock.Unlock()
+	_, ok := m.data[k]
+	if ok {
+		delete(m.data, k)
+		return true
+	}
+	return false
 }
 
 func (m *MemoryStorage) Keys() (keys []string) {

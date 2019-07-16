@@ -13,9 +13,10 @@ type walFile struct {
 }
 
 type WalFileWriter struct {
-	data    chan ([]byte)
-	walFile *walFile
-	walDir  string
+	data          chan ([]byte)
+	walFile       *walFile
+	walDir        string
+	WaitTerminate chan bool
 }
 
 func (w *walFile) path() string {
@@ -36,21 +37,23 @@ func (writer *WalFileWriter) SyncWrite(data []byte) {
 }
 
 func (writer *WalFileWriter) Run() {
+	writer.WaitTerminate = make(chan bool)
 	w := &walFile{
 		wr: writer,
 	}
 	writer.walFile = w
-	f, err := os.OpenFile(w.path(), os.O_WRONLY|os.O_CREATE, 0600)
+	f, err := os.OpenFile(w.path(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)
 	}
 	defer func() {
-		f.Write([]byte("+CLOSED\r\n"))
+		f.Write([]byte("-CLOSED\r\n"))
 		f.Close()
+		close(writer.WaitTerminate)
 		log.Println("Wal file writer exited")
 	}()
 	log.Println("Wal file writer started")
-	f.Write([]byte("$0\r\n"))
+	f.Write([]byte("-WAL 0\r\n"))
 	for {
 		select {
 		case data, more := <-writer.data:

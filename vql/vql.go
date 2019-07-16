@@ -21,7 +21,13 @@ var (
 	walWriter      *storagePkg.WalFileWriter
 )
 
-const ()
+const (
+	typeArray        = "*"
+	typeInteger      = ":"
+	typeSimpleString = "+"
+	typeBulkString   = "$"
+	typeError        = "-"
+)
 
 type Query struct {
 	raw  []byte
@@ -33,8 +39,7 @@ type Query struct {
 type Response struct {
 	Payload          [][]byte
 	DisconnectSignal bool
-	Bulk             bool
-	Array            bool
+	Type             string
 }
 
 func NewResponse() *Response {
@@ -149,8 +154,36 @@ func (q *Query) Set(key string, value []byte) {
 	storage.Set(key, value)
 }
 
+func (q *Query) Incr(key string) ([]byte, error) {
+	v, err := storage.Incr(key)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func (q *Query) Decr(key string) ([]byte, error) {
+	v, err := storage.Decr(key)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
 func (q *Query) Get(key string) []byte {
 	return storage.Get(key)
+}
+
+func (q *Query) Del(keys ...string) []byte {
+	var deletedCount int
+	for _, key := range keys {
+		deleted := storage.Del(key)
+		if deleted {
+			deletedCount = deletedCount + 1
+		}
+	}
+	return []byte(fmt.Sprintf("%d", deletedCount))
+
 }
 
 func (q *Query) WalWrite() {
@@ -239,7 +272,48 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too many arguments")
 				}
 				r.PayloadString([]byte(q.Get(args[0])))
-				r.Bulk = true
+				r.Type = typeBulkString
+				return nil
+			},
+		},
+		"del": {
+			"*": func() error {
+				if len(args) < 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				r.PayloadString([]byte(q.Del(args...)))
+				q.WalWrite()
+				r.Type = typeInteger
+				return nil
+			},
+		},
+		"incr": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				v, err := q.Incr(args[0])
+				if err != nil {
+					return err
+				}
+				r.PayloadString([]byte(v))
+				q.WalWrite()
+				r.Type = typeInteger
+				return nil
+			},
+		},
+		"decr": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				v, err := q.Decr(args[0])
+				if err != nil {
+					return err
+				}
+				r.PayloadString([]byte(v))
+				q.WalWrite()
+				r.Type = typeInteger
 				return nil
 			},
 		},
@@ -251,7 +325,7 @@ func (q *Query) Execute() (*Response, error) {
 				for _, k := range storage.Keys() {
 					r.Payload = append(r.Payload, []byte(k))
 				}
-				r.Array = true
+				r.Type = typeArray
 				return nil
 			},
 		},
@@ -274,7 +348,7 @@ func (q *Query) Execute() (*Response, error) {
 		if verb["*"] != nil {
 			err := verb["*"]()
 			if err != nil {
-				return nil, err
+				return r, err
 			}
 			return r, nil
 		}
@@ -330,16 +404,53 @@ func (r *Response) Size() int {
 	return len(r.Payload)
 }
 
+func (r *Response) isBulkString() bool {
+	if r.Type == typeBulkString {
+		return true
+	}
+	return false
+}
+
+func (r *Response) isArray() bool {
+	if r.Type == typeArray {
+		return true
+	}
+	return false
+}
+
+func (r *Response) isInteger() bool {
+	if r.Type == typeInteger {
+		return true
+	}
+	return false
+}
+
+func (r *Response) isNullBulkString() bool {
+	if r.Type == typeBulkString && len(r.Payload[0]) == 0 {
+		return true
+	}
+	return false
+}
+
 func (r *Response) FormattedPayload() []byte {
 	var payload []byte
-	if len(r.Payload) == 1 && !r.Array {
-		if r.Bulk {
-			payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
-			payload = append(payload, r.Payload[0]...)
-		} else {
-			payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
+
+	if len(r.Payload) == 1 {
+		if !r.isArray() {
+			if r.isBulkString() {
+				if r.isNullBulkString() {
+					payload = []byte("$-1")
+				} else {
+					payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
+					payload = append(payload, r.Payload[0]...)
+				}
+			} else if r.isInteger() {
+				payload = []byte(fmt.Sprintf(":%s", r.Payload[0]))
+			} else {
+				payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
+			}
+			payload = append(payload, "\r\n"...)
 		}
-		payload = append(payload, "\r\n"...)
 	} else {
 		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
 		for i := 0; i < len(r.Payload); i++ {
@@ -383,5 +494,7 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 }
 
 func (v *VQLTCPServer) Shutdown() {
+	walWriter.Close()
+	<-walWriter.WaitTerminate
 	fmt.Println("[vql] shutdown")
 }

@@ -33,7 +33,7 @@ func TestWalFileWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := []byte("$0\r\nfoobar\r\n")
+	expected := []byte("-WAL 0\r\nfoobar\r\n")
 	if string(expected) != string(output) {
 		t.Fatalf("want %s, got %s", expected, output)
 	}
@@ -44,7 +44,7 @@ func TestWalFileWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected = []byte("$0\r\nfoobar\r\ndata\r\n+CLOSED\r\n")
+	expected = []byte("-WAL 0\r\nfoobar\r\ndata\r\n-CLOSED\r\n")
 	if string(expected) != string(output) {
 		t.Fatalf("want %s, got %s", expected, output)
 	}

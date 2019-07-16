@@ -113,40 +113,73 @@ func TestVQLPing(t *testing.T) {
 	}
 }
 
-func TestVQLSetGet(t *testing.T) {
+func TestVQLQueries(t *testing.T) {
+	suites := []string{
+		"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$4\r\n1337\r\n", "+OK\r\n",
+		"*2\r\n$3\r\nget\r\n$3\r\nkey\r\n", "$4\r\n1337\r\n",
+		"*2\r\n$3\r\nget\r\n$3\r\nfoobar\r\n", "$-1\r\n",
+		"*2\r\n$3\r\ndel\r\n$3\r\nkey\r\n", ":1\r\n",
+		"del key key e", ":0\r\n",
+		"incr key", ":1\r\n",
+		"incr key", ":2\r\n",
+		"set key 49", "+OK\r\n",
+		"incr key", ":50\r\n",
+		"decr key", ":49\r\n",
+		"decr z", ":-1\r\n",
+		"decr z", ":-2\r\n",
+		"del z key", ":2\r\n",
+	}
 	setup()
 	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
 	if err != nil {
 		t.Errorf("Cannot create VQL server: %+v", err)
 	}
-	input := []byte("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nhello\r\n")
-	q, err := v.ParseRawQuery(input)
-	if err != nil {
-		t.Errorf("Cannot parse raw query: %+v", err)
-	}
-	r, err := q.Execute()
-	if err != nil {
-		t.Errorf("Cannot execute query: %+v", err)
-	}
-	expected := "+OK\r\n"
-	output := r.FormattedPayload()
-	if expected != string(output) {
-		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+	for i := 0; i < len(suites); i++ {
+		input := []byte(suites[i])
+		expected := suites[i+1]
+		q, errP := v.ParseRawQuery(input)
+		if errP != nil {
+			t.Errorf("Cannot parse raw query: %+v", errP)
+		}
+		r, errQ := q.Execute()
+		if errQ != nil {
+			t.Fatalf("Cannot execute query: %+v", errQ)
+		}
+		output := r.FormattedPayload()
+		if expected != string(output) {
+			t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+		}
+		i++
 	}
 
-	// Get
-	input = []byte("*2\r\n$3\r\nget\r\n$3\r\nkey\r\n")
-	q, err = v.ParseRawQuery(input)
-	if err != nil {
-		t.Errorf("Cannot parse raw query: %+v", err)
-	}
-	r, err = q.Execute()
-	if err != nil {
-		t.Errorf("Cannot execute query: %+v", err)
-	}
-	expected = "$5\r\nhello\r\n"
-	output = r.FormattedPayload()
-	if expected != string(output) {
-		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
-	}
+	// // Incr
+	// input = []byte("incr key")
+	// q, err = v.ParseRawQuery(input)
+	// if err != nil {
+	// 	t.Errorf("Cannot parse raw query: %+v", err)
+	// }
+	// r, err = q.Execute()
+	// if err != nil {
+	// 	t.Errorf("Cannot execute query: %+v", err)
+	// }
+	// expected = ":44\r\n"
+	// output = r.FormattedPayload()
+	// if expected != string(output) {
+	// 	t.Errorf("want %s, got %s", []byte(expected), []byte(output))
+	// }
+	// input = []byte("get key")
+	// q, err = v.ParseRawQuery(input)
+	// if err != nil {
+	// 	t.Errorf("Cannot parse raw query: %+v", err)
+	// }
+	// r, err = q.Execute()
+	// if err != nil {
+	// 	t.Errorf("Cannot execute query: %+v", err)
+	// }
+	// expected = "$1\r\n44\r\n"
+	// output = r.FormattedPayload()
+	// if expected != string(output) {
+	// 	t.Errorf("want %s, got %s", []byte(expected), []byte(output))
+	// }
+
 }
