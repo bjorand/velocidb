@@ -113,6 +113,28 @@ func TestVQLPing(t *testing.T) {
 	}
 }
 
+func TestVQLQuit(t *testing.T) {
+	setup()
+	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
+	if err != nil {
+		t.Errorf("Cannot create VQL server: %+v", err)
+	}
+	input := []byte("quit\r\n")
+	q, err := v.ParseRawQuery(input)
+	if err != nil {
+		t.Errorf("Cannot parse raw query: %+v", err)
+	}
+	r, err := q.Execute()
+	if err != nil {
+		t.Errorf("Cannot execute query: %+v", err)
+	}
+	expected := "+OK\r\n"
+	output := r.FormattedPayload()
+	if expected != string(output) {
+		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+	}
+}
+
 func TestVQLQueries(t *testing.T) {
 	suites := []string{
 		"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$4\r\n1337\r\n", "+OK\r\n",
@@ -151,35 +173,4 @@ func TestVQLQueries(t *testing.T) {
 		}
 		i++
 	}
-
-	// // Incr
-	// input = []byte("incr key")
-	// q, err = v.ParseRawQuery(input)
-	// if err != nil {
-	// 	t.Errorf("Cannot parse raw query: %+v", err)
-	// }
-	// r, err = q.Execute()
-	// if err != nil {
-	// 	t.Errorf("Cannot execute query: %+v", err)
-	// }
-	// expected = ":44\r\n"
-	// output = r.FormattedPayload()
-	// if expected != string(output) {
-	// 	t.Errorf("want %s, got %s", []byte(expected), []byte(output))
-	// }
-	// input = []byte("get key")
-	// q, err = v.ParseRawQuery(input)
-	// if err != nil {
-	// 	t.Errorf("Cannot parse raw query: %+v", err)
-	// }
-	// r, err = q.Execute()
-	// if err != nil {
-	// 	t.Errorf("Cannot execute query: %+v", err)
-	// }
-	// expected = "$1\r\n44\r\n"
-	// output = r.FormattedPayload()
-	// if expected != string(output) {
-	// 	t.Errorf("want %s, got %s", []byte(expected), []byte(output))
-	// }
-
 }

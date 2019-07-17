@@ -332,7 +332,7 @@ func (q *Query) Execute() (*Response, error) {
 		"quit": {
 			"": func() error {
 				r.DisconnectSignal = true
-				r.Payload[0] = []byte("+ATH0")
+				r.OK()
 				return nil
 			},
 		},
