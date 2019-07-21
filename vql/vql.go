@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bjorand/velocidb/peering"
 	storagePkg "github.com/bjorand/velocidb/storage"
@@ -252,6 +253,17 @@ func (q *Query) Execute() (*Response, error) {
 			"": func() error {
 				storage.FlushData()
 				r.OK()
+				return nil
+			},
+		},
+		"time": {
+			"": func() error {
+				t := time.Now()
+				r.Payload = append(
+					r.Payload,
+					[]byte(fmt.Sprintf("%d", t.Unix())),
+					[]byte(fmt.Sprintf("%d", t.UnixNano()%int64(time.Second)/int64(time.Microsecond))))
+				r.Type = typeArray
 				return nil
 			},
 		},
