@@ -1,6 +1,8 @@
 package vql
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	peering "github.com/bjorand/velocidb/peering"
@@ -65,7 +67,7 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
 	expected := "ping"
-	output := q.text
+	output := q.words()[0]
 	if expected != output {
 		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
 	}
@@ -75,9 +77,9 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
 	expected = "peer connect 192.168.0.2"
-	output = q.text
+	output = strings.Join(q.words(), " ")
 	if expected != output {
-		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 	}
 	input = []byte("*3\r\n$4\r\npeer\r\n$7\r\nconnect\r\n$11\r\n192.168.0.2\r\n")
 	q, err = v.ParseRawQuery(input)
@@ -85,7 +87,7 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
 	expected = "peer connect 192.168.0.2"
-	output = q.text
+	output = strings.Join(q.words(), " ")
 	if expected != output {
 		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 	}
@@ -136,6 +138,7 @@ func TestVQLQuit(t *testing.T) {
 }
 
 func TestVQLQueries(t *testing.T) {
+	b := make([]byte, 1000)
 	suites := []string{
 		"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$4\r\n1337\r\n", "+OK\r\n",
 		"*2\r\n$3\r\nget\r\n$3\r\nkey\r\n", "$4\r\n1337\r\n",
@@ -150,6 +153,8 @@ func TestVQLQueries(t *testing.T) {
 		"decr z", ":-1\r\n",
 		"decr z", ":-2\r\n",
 		"del z key", ":2\r\n",
+		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(b)*2, b), "+OK\r\n",
+		"get key", fmt.Sprintf("$%d\r\n%x\r\n", len(b)*2, b),
 	}
 	setup()
 	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
@@ -169,7 +174,7 @@ func TestVQLQueries(t *testing.T) {
 		}
 		output := r.FormattedPayload()
 		if expected != string(output) {
-			t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+			t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 		}
 		i++
 	}

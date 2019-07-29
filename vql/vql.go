@@ -1,6 +1,7 @@
 package vql
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"strconv"
@@ -31,10 +32,10 @@ const (
 )
 
 type Query struct {
-	raw  []byte
-	id   string
-	text string
-	v    *VQLTCPServer
+	raw    []byte
+	id     string
+	parsed [][]byte
+	v      *VQLTCPServer
 }
 
 type Response struct {
@@ -99,14 +100,22 @@ func readInt(data []byte, cursor int) (int, int) {
 
 func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 	// text := Sanitize(data)
-	var text string
 	var readCur int
 	var bytesToRead int
 	var elementsCount int
 	var initialRow int
 
-	for i, d := range data {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		panic(err)
+	}
+	q := &Query{
+		raw: data,
+		id:  id.String(),
+		v:   v,
+	}
 
+	for i, d := range data {
 		if d == '*' {
 			readCur = i + 1
 			elementsCount, readCur = readInt(data[readCur:], readCur)
@@ -114,33 +123,34 @@ func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 				if data[readCur] == '$' {
 					readCur++
 					bytesToRead, readCur = readInt(data[readCur:], readCur)
-					if len(text) > 0 {
-						text += " "
+					if len(data) >= readCur+bytesToRead {
+						q.parsed = append(q.parsed, data[readCur:readCur+bytesToRead])
+					} else {
+						return nil, fmt.Errorf("Length indication do not match content length")
 					}
-					text += string(data[readCur : readCur+bytesToRead])
 					readCur += bytesToRead + len(endByte)
 				}
 			}
 		} else {
-			text = SanitizeTextInput(data)
+			for _, w := range bytes.Split(data, []byte(" ")) {
+				w = bytes.Trim(w, string(endByte))
+				q.parsed = append(q.parsed, []byte(w))
+			}
+			break
 		}
 		break
 
 	}
-	id, err := uuid.NewUUID()
-	if err != nil {
-		panic(err)
-	}
-	return &Query{
-		raw:  data,
-		id:   id.String(),
-		text: text,
-		v:    v,
-	}, nil
+
+	return q, nil
 }
 
 func (q *Query) words() []string {
-	return strings.Split(q.text, " ")
+	words := []string{}
+	for _, w := range q.parsed {
+		words = append(words, string(w))
+	}
+	return words
 }
 
 func (q *Query) verb() string {
@@ -272,7 +282,7 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) < 2 {
 					return fmt.Errorf("Too few arguments")
 				}
-				q.Set(args[0], []byte(strings.Join(args[1:], " ")))
+				q.Set(args[0], q.parsed[2])
 				q.WalWrite()
 				r.OK()
 				return nil
