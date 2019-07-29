@@ -3,6 +3,7 @@ package vql
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -32,10 +33,11 @@ const (
 )
 
 type Query struct {
-	raw    []byte
-	id     string
-	parsed [][]byte
-	v      *VQLTCPServer
+	raw         []byte
+	id          string
+	parsed      [][]byte
+	v           *VQLTCPServer
+	hasMoreData int
 }
 
 type Response struct {
@@ -126,7 +128,9 @@ func (v *VQLTCPServer) ParseRawQuery(data []byte) (*Query, error) {
 					if len(data) >= readCur+bytesToRead {
 						q.parsed = append(q.parsed, data[readCur:readCur+bytesToRead])
 					} else {
-						return nil, fmt.Errorf("Length indication do not match content length")
+						q.parsed = append(q.parsed, data[readCur:])
+						q.hasMoreData = bytesToRead - len(data) - readCur
+						break
 					}
 					readCur += bytesToRead + len(endByte)
 				}
@@ -154,11 +158,17 @@ func (q *Query) words() []string {
 }
 
 func (q *Query) verb() string {
-	return strings.ToLower(q.words()[0])
+	if len(q.words()) > 0 {
+		return strings.ToLower(string(q.parsed[0]))
+	}
+	return ""
 }
 
 func (q *Query) args() []string {
-	return q.words()[1:]
+	if len(q.words()) > 0 {
+		return q.words()[1:]
+	}
+	return []string{}
 }
 
 func (q *Query) Set(key string, value []byte) {
@@ -379,6 +389,7 @@ func (q *Query) Execute() (*Response, error) {
 			err := f()
 			return r, err
 		}
+		log.Println(q.verb())
 		return nil, fmt.Errorf("ERR unknown command '%s %s'", q.verb(), args[0])
 	}
 	if verb[""] == nil {
@@ -488,6 +499,9 @@ func (r *Response) FormattedPayload() []byte {
 func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 	fmt.Printf("[vql] Serving %s\n", conn.RemoteAddr().String())
 	// Make a buffer to hold incoming data.
+	var hasMoreData int
+	var query *Query
+
 	for {
 		buf := make([]byte, 1024)
 		// Read the incoming connection into the buffer.
@@ -496,10 +510,26 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 			fmt.Println("[vql] -Error reading:", err.Error())
 			break
 		}
-		query, err := v.ParseRawQuery(buf[:reqLen])
-		if err != nil {
-			conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
-			continue
+		if hasMoreData > 0 {
+			query.parsed[len(query.parsed)-1] = append(query.parsed[len(query.parsed)-1], buf[:reqLen]...)
+			hasMoreData = hasMoreData - reqLen
+			if hasMoreData > 0 {
+				continue
+			} else {
+				hasMoreData = -1
+			}
+		}
+		// extended read finished
+		if hasMoreData == 0 {
+			query, err = v.ParseRawQuery(buf[:reqLen])
+			if err != nil {
+				conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
+				continue
+			}
+			hasMoreData = query.hasMoreData
+			if hasMoreData > 0 {
+				continue
+			}
 		}
 		resp, err := query.Execute()
 		if err != nil {

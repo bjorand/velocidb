@@ -2,6 +2,7 @@ package vql
 
 import (
 	"fmt"
+	"io/ioutil"
 	"strings"
 	"testing"
 
@@ -139,6 +140,11 @@ func TestVQLQuit(t *testing.T) {
 
 func TestVQLQueries(t *testing.T) {
 	b := make([]byte, 1000)
+	// TODO generate a binary file here
+	f, err := ioutil.ReadFile("/Users/meister/consul_1.5.1_darwin_amd64.zip")
+	if err != nil {
+		panic(err)
+	}
 	suites := []string{
 		"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$4\r\n1337\r\n", "+OK\r\n",
 		"*2\r\n$3\r\nget\r\n$3\r\nkey\r\n", "$4\r\n1337\r\n",
@@ -155,6 +161,7 @@ func TestVQLQueries(t *testing.T) {
 		"del z key", ":2\r\n",
 		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(b)*2, b), "+OK\r\n",
 		"get key", fmt.Sprintf("$%d\r\n%x\r\n", len(b)*2, b),
+		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(f)*2, f), "+OK\r\n",
 	}
 	setup()
 	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
