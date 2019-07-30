@@ -25,6 +25,14 @@ func (w *walFile) Path() string {
 	return fmt.Sprintf("%s/%d.wal", w.wr.walDir, w.id)
 }
 
+func (w *walFile) Size() (int64, error) {
+	fi, err := os.Stat(w.Path())
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
 func NewWalFileWriter(walDir string) *WalFileWriter {
 	w := &WalFileWriter{
 		walDir: walDir,

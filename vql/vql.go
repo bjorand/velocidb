@@ -220,8 +220,10 @@ func infoStorage() (info []string) {
 }
 
 func infoWal(v *VQLTCPServer) (info []string) {
+	walFilesize, _ := v.walWriter.WalFile.Size()
 	info = append(info, "# Wal")
 	info = append(info, fmt.Sprintf("current_wal_file:%s", v.walWriter.WalFile.Path()))
+	info = append(info, fmt.Sprintf("current_wal_file_size_bytes:%d", walFilesize))
 	info = append(info, fmt.Sprintf("write_bytes:%d", v.walWriter.BytesWritten))
 	info = append(info, fmt.Sprintf("write_ops:%d", v.walWriter.WriteOps))
 	return info
