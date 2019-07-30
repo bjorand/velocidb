@@ -21,10 +21,49 @@ More details about Velocidb engine:
 
 Velocidb is in early development. We support a small subset of the Redis protocol to validate Velocidb distributed models.
 
-Here is a list of Redis "compatible" commands:
+Here is a list of Redis "compatible" commands (commands are case-insensitive):
+- `INFO`
 - `PING`
 - `GET <key>`
 - `SET <key> <value>`
+- `INCR <key>`
+- `DECR <key>`
+- `DEL <key>`
+- `KEYS *`
+- `TIME`
+- `FLUSHDB`
+- `CLIENT LIST`
+- `QUIT`
+
+Interactive session with `redis-cli`:
+
+```
+redis-cli -p 4300
+127.0.0.1:4300> keys *
+(empty list or set)
+127.0.0.1:4300> incr a
+(integer) 1
+127.0.0.1:4300> keys *
+1) "a"
+127.0.0.1:4300> incr z
+(integer) 1
+127.0.0.1:4300> keys *
+1) "a"
+2) "z"
+127.0.0.1:4300> del a z
+(integer) 2
+127.0.0.1:4300> keys *
+(empty list or set)
+127.0.0.1:4300> get z
+(nil)
+127.0.0.1:4300> incr z
+(integer) 1
+127.0.0.1:4300> get z
+"1"
+127.0.0.1:4300> info keyspace
+# Keyspace
+db0:keys=1
+```
 
 ### Data storage
 

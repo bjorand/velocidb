@@ -29,7 +29,7 @@ func TestWalFileWriter(t *testing.T) {
 	wfw.SyncWrite([]byte("foobar"))
 
 	time.Sleep(1 * time.Second)
-	output, err := ioutil.ReadFile(wfw.walFile.path())
+	output, err := ioutil.ReadFile(wfw.WalFile.Path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestWalFileWriter(t *testing.T) {
 
 	wfw.Close()
 	time.Sleep(1 * time.Second)
-	output, err = ioutil.ReadFile(wfw.walFile.path())
+	output, err = ioutil.ReadFile(wfw.WalFile.Path())
 	if err != nil {
 		t.Fatal(err)
 	}

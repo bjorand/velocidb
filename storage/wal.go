@@ -14,12 +14,14 @@ type walFile struct {
 
 type WalFileWriter struct {
 	data          chan ([]byte)
-	walFile       *walFile
+	WalFile       *walFile
 	walDir        string
 	WaitTerminate chan bool
+	BytesWritten  int
+	WriteOps      int
 }
 
-func (w *walFile) path() string {
+func (w *walFile) Path() string {
 	return fmt.Sprintf("%s/%d.wal", w.wr.walDir, w.id)
 }
 
@@ -41,8 +43,8 @@ func (writer *WalFileWriter) Run() {
 	w := &walFile{
 		wr: writer,
 	}
-	writer.walFile = w
-	f, err := os.OpenFile(w.path(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
+	writer.WalFile = w
+	f, err := os.OpenFile(w.Path(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -62,6 +64,10 @@ func (writer *WalFileWriter) Run() {
 			}
 			data = append(data, "\r\n"...)
 			f.Write(data)
+			lock.Lock()
+			writer.BytesWritten += len(data)
+			writer.WriteOps++
+			lock.Unlock()
 		}
 
 	}

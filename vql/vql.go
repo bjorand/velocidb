@@ -3,10 +3,11 @@ package vql
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bjorand/velocidb/peering"
@@ -22,6 +23,7 @@ var (
 	endByte        = []byte("\r\n")
 	storage        *storagePkg.MemoryStorage
 	walWriter      *storagePkg.WalFileWriter
+	lock           = sync.RWMutex{}
 )
 
 const (
@@ -211,6 +213,40 @@ func (q *Query) WalWrite() {
 	walWriter.SyncWrite(q.raw)
 }
 
+func infoStorage() (info []string) {
+	info = append(info, "# Keyspace")
+	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys())))
+	return info
+}
+
+func infoWal(v *VQLTCPServer) (info []string) {
+	info = append(info, "# Wal")
+	info = append(info, fmt.Sprintf("current_wal_file:%s", v.walWriter.WalFile.Path()))
+	info = append(info, fmt.Sprintf("write_bytes:%d", v.walWriter.BytesWritten))
+	info = append(info, fmt.Sprintf("write_ops:%d", v.walWriter.WriteOps))
+	return info
+}
+
+func infoVQL(v *VQLTCPServer) (info []string) {
+	info = append(info, "# VQL")
+	info = append(info, fmt.Sprintf("connected_clients:%d", v.connectedClients))
+	return info
+}
+
+func infoServer(peer *peering.Peer) (info []string) {
+	info = append(info, "# Server")
+	peerInfo := peer.Info()
+	names := make([]string, 0, len(peerInfo))
+	for name := range peerInfo {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		info = append(info, fmt.Sprintf("%s:%+v", name, peerInfo[name]))
+	}
+	return info
+}
+
 func (q *Query) Execute() (*Response, error) {
 	r := NewResponse()
 	args := q.args()
@@ -255,11 +291,46 @@ func (q *Query) Execute() (*Response, error) {
 				return fmt.Errorf("Peer %s not found in peer list", args[1])
 			},
 		},
-		"info": {
-			"": func() error {
-				for k, v := range q.v.Peer.Info() {
-					r.Payload = append(r.Payload, []byte(fmt.Sprintf("%s\t%+v\n", k, v)))
+		"client": {
+			"list": func() error {
+				r.Type = typeBulkString
+				var clients []string
+				for c := range q.v.clients {
+					clients = append(clients, fmt.Sprintf("id=%s addr=%s", c.id, c.addr))
 				}
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(clients, "\r\n"))))
+				return nil
+			},
+		},
+		"info": {
+			"server": func() error {
+				r.Type = typeBulkString
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoServer(q.v.Peer), "\r\n"))))
+				return nil
+			},
+			"keyspace": func() error {
+				r.Type = typeBulkString
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoStorage(), "\r\n"))))
+				return nil
+			},
+			"vql": func() error {
+				r.Type = typeBulkString
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoVQL(q.v), "\r\n"))))
+				return nil
+			},
+			"wal": func() error {
+				r.Type = typeBulkString
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoWal(q.v), "\r\n"))))
+				return nil
+			},
+			"": func() error {
+				var info []string
+				info = append(info, infoServer(q.v.Peer)...)
+				info = append(info, infoStorage()...)
+				info = append(info, infoVQL(q.v)...)
+				info = append(info, infoWal(q.v)...)
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(info, "\r\n"))))
+				r.Type = typeBulkString
 				return nil
 			},
 		},
@@ -389,7 +460,6 @@ func (q *Query) Execute() (*Response, error) {
 			err := f()
 			return r, err
 		}
-		log.Println(q.verb())
 		return nil, fmt.Errorf("ERR unknown command '%s %s'", q.verb(), args[0])
 	}
 	if verb[""] == nil {
@@ -402,21 +472,32 @@ func (q *Query) Execute() (*Response, error) {
 	return nil, nil
 }
 
+type Client struct {
+	id   string
+	addr string
+}
+
 type VQLTCPServer struct {
-	Peer       *peering.Peer
-	ListenAddr string
-	ListenPort int64
+	Peer             *peering.Peer
+	ListenAddr       string
+	ListenPort       int64
+	connectedClients int
+	walWriter        *storagePkg.WalFileWriter
+	clients          map[*Client]bool
 }
 
 func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*VQLTCPServer, error) {
+
 	v := &VQLTCPServer{
 		Peer:       peer,
 		ListenAddr: listenAddr,
 		ListenPort: listenPort,
+		clients:    make(map[*Client]bool),
 	}
 	storage = v.StorageInit()
 	walWriter = storagePkg.NewWalFileWriter("/tmp")
 	go walWriter.Run()
+	v.walWriter = walWriter
 	return v, nil
 }
 
@@ -468,22 +549,22 @@ func (r *Response) isNullBulkString() bool {
 func (r *Response) FormattedPayload() []byte {
 	var payload []byte
 
-	if len(r.Payload) == 1 {
-		if !r.isArray() {
-			if r.isBulkString() {
-				if r.isNullBulkString() {
-					payload = []byte("$-1")
-				} else {
-					payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
-					payload = append(payload, r.Payload[0]...)
-				}
-			} else if r.isInteger() {
-				payload = []byte(fmt.Sprintf(":%s", r.Payload[0]))
+	if len(r.Payload) == 1 && !r.isArray() {
+
+		if r.isBulkString() {
+			if r.isNullBulkString() {
+				payload = []byte("$-1")
 			} else {
-				payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
+				payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
+				payload = append(payload, r.Payload[0]...)
 			}
-			payload = append(payload, "\r\n"...)
+		} else if r.isInteger() {
+			payload = []byte(fmt.Sprintf(":%s", r.Payload[0]))
+		} else {
+			payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
 		}
+		payload = append(payload, "\r\n"...)
+
 	} else {
 		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
 		for i := 0; i < len(r.Payload); i++ {
@@ -501,7 +582,22 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 	// Make a buffer to hold incoming data.
 	var hasMoreData int
 	var query *Query
-
+	id, err := uuid.NewUUID()
+	if err != nil {
+		panic(err)
+	}
+	client := &Client{
+		id:   id.String(),
+		addr: conn.RemoteAddr().String(),
+	}
+	lock.Lock()
+	v.clients[client] = true
+	lock.Unlock()
+	defer func() {
+		lock.Lock()
+		delete(v.clients, client)
+		lock.Unlock()
+	}()
 	for {
 		buf := make([]byte, 1024)
 		// Read the incoming connection into the buffer.
