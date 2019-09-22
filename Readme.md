@@ -30,6 +30,10 @@ Here is a list of Redis "compatible" commands (commands are case-insensitive):
 - `DECR <key>`
 - `DEL <key>`
 - `KEYS <glob>`
+- `SCAN <cursor> [COUNT count] [MATCH glob] [TYPE type]`
+- `TTL <key`
+- `TYPE <key>`
+- `SELECT <db>`
 - `TIME`
 - `FLUSHDB`
 - `CLIENT LIST`
