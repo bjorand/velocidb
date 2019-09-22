@@ -95,3 +95,18 @@ func (m *MemoryStorage) Keys(filter string) (keys []string) {
 	}
 	return keys
 }
+
+func (m *MemoryStorage) Scan(cursor int, count int, filter string, typeFilter string) (error, int, []string) {
+	var keys []string
+	var g glob.Glob
+	if typeFilter != "string" {
+		return fmt.Errorf("Invalid filter type"), 0, nil
+	}
+	g = glob.MustCompile(filter)
+	for k := range m.data {
+		if g.Match(k) {
+			keys = append(keys, k)
+		}
+	}
+	return nil, 0, keys
+}

@@ -157,6 +157,28 @@ func TestVQLQuit(t *testing.T) {
 	}
 }
 
+func TestVQLScan(t *testing.T) {
+	setup()
+	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
+	if err != nil {
+		t.Errorf("Cannot create VQL server: %+v", err)
+	}
+	input := []byte("scan 0\r\n")
+	q, err := v.ParseRawQuery(input)
+	if err != nil {
+		t.Errorf("Cannot parse raw query: %+v", err)
+	}
+	r, err := q.Execute()
+	if err != nil {
+		t.Errorf("Cannot execute query: %+v", err)
+	}
+	expected := "*2\r\n$1\r\n0\r\n*0\r\n"
+	output := r.FormattedPayload()
+	if expected != string(output) {
+		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
+	}
+}
+
 func TestVQLQueries(t *testing.T) {
 	b := make([]byte, 1000)
 	// TODO generate a binary file here

@@ -442,6 +442,52 @@ func (q *Query) Execute() (*Response, error) {
 				return nil
 			},
 		},
+		"scan": {
+			"*": func() error {
+				if len(args) > 7 {
+					return fmt.Errorf("Too many arguments")
+				}
+				if len(args)%2 != 1 {
+					return fmt.Errorf("Too few arguments")
+				}
+				cursor := 0
+				match := "*"
+				count := 10
+				typeFilter := "string"
+				for i, arg := range args {
+					if strings.ToLower(arg) == "match" && args[i+1] != "" {
+						match = args[i+1]
+					}
+					if strings.ToLower(arg) == "type" && args[i+1] != "" {
+						typeFilter = args[i+1]
+					}
+					if strings.ToLower(arg) == "count" && args[i+1] != "" {
+						c, err := strconv.Atoi(args[i+1])
+						if err != nil {
+							return fmt.Errorf("Value is not an integer or out of range")
+						}
+						count = c
+					}
+				}
+				var keys []string
+				var err error
+				err, cursor, keys = storage.Scan(cursor, count, match, typeFilter)
+				if err != nil {
+					return err
+				}
+
+				r.Payload = append(r.Payload, []byte(fmt.Sprintf("%d", cursor)))
+				var keysB [][]byte
+				for _, key := range keys {
+					keysB = append(keysB, []byte(key))
+				}
+
+				f := formattedArray(keysB)
+				r.Payload = append(r.Payload, f)
+				r.Type = typeArray
+				return nil
+			},
+		},
 		"type": {
 			"*": func() error {
 				if len(args) != 1 {
@@ -450,6 +496,17 @@ func (q *Query) Execute() (*Response, error) {
 				// TODO we need to support more types
 				r.PayloadString([]byte("string"))
 				r.Type = typeSimpleString
+				return nil
+			},
+		},
+		"ttl": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				// TODO we need to support TTL
+				r.PayloadString([]byte("-1"))
+				r.Type = typeInteger
 				return nil
 			},
 		},
@@ -580,6 +637,18 @@ func (r *Response) isNullBulkString() bool {
 	return false
 }
 
+func formattedArray(items [][]byte) []byte {
+	payload := []byte(fmt.Sprintf("*%d\r\n", len(items)))
+	for i := 0; i < len(items); i++ {
+		if !bytes.HasPrefix(items[i], []byte("*")) {
+			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(items[i])))...)
+		}
+		payload = append(payload, items[i]...)
+		payload = append(payload, []byte("\r\n")...)
+	}
+	return payload
+}
+
 func (r *Response) FormattedPayload() []byte {
 	var payload []byte
 
@@ -602,9 +671,14 @@ func (r *Response) FormattedPayload() []byte {
 	} else {
 		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
 		for i := 0; i < len(r.Payload); i++ {
-			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
+
+			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
+				payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
+			}
 			payload = append(payload, r.Payload[i]...)
-			payload = append(payload, []byte("\r\n")...)
+			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
+				payload = append(payload, []byte("\r\n")...)
+			}
 		}
 
 	}
