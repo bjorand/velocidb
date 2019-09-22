@@ -2,10 +2,10 @@
 
 
 [[projects]]
-  branch = "master"
-  name = "github.com/armon/go-metrics"
-  packages = ["."]
-  revision = "ec5e00d3c878b2a97bbe0884ef45ffd1b4f669f5"
+  name = "github.com/gobwas/glob"
+  packages = [".","compiler","match","syntax","syntax/ast","syntax/lexer","util/runes","util/strings"]
+  revision = "5ccd90ef52e1e632236f7326478d4faa74f99438"
+  version = "v0.2.3"
 
 [[projects]]
   name = "github.com/google/uuid"
@@ -13,69 +13,9 @@
   revision = "0cd6bf5da1e1c83f8b45653022c74f71af0538a4"
   version = "v1.1.1"
 
-[[projects]]
-  name = "github.com/hashicorp/consul"
-  packages = ["api"]
-  revision = "40cec98468b829e5cdaacb0629b3e23a028db688"
-  version = "v1.5.1"
-
-[[projects]]
-  name = "github.com/hashicorp/go-cleanhttp"
-  packages = ["."]
-  revision = "eda1e5db218aad1db63ca4642c8906b26bcf2744"
-  version = "v0.5.1"
-
-[[projects]]
-  name = "github.com/hashicorp/go-immutable-radix"
-  packages = ["."]
-  revision = "7dd1121b595e4e1bd6dd5caa78e0f5c454740379"
-  version = "v1.1.0"
-
-[[projects]]
-  name = "github.com/hashicorp/go-rootcerts"
-  packages = ["."]
-  revision = "63503fb4e1eca22f9ae0f90b49c5d5538a0e87eb"
-  version = "v1.0.0"
-
-[[projects]]
-  name = "github.com/hashicorp/golang-lru"
-  packages = ["simplelru"]
-  revision = "7087cb70de9f7a8bc0a10c375cb0d2280a8edf9c"
-  version = "v0.5.1"
-
-[[projects]]
-  name = "github.com/hashicorp/serf"
-  packages = ["coordinate"]
-  revision = "15cfd05de3dffb3664aa37b06e91f970b825e380"
-  version = "v0.8.3"
-
-[[projects]]
-  name = "github.com/mattn/go-runewidth"
-  packages = ["."]
-  revision = "3ee7d812e62a0804a7d0a324e0249ca2db3476d3"
-  version = "v0.0.4"
-
-[[projects]]
-  name = "github.com/mitchellh/go-homedir"
-  packages = ["."]
-  revision = "af06845cf3004701891bf4fdb884bfe4920b3727"
-  version = "v1.1.0"
-
-[[projects]]
-  name = "github.com/mitchellh/mapstructure"
-  packages = ["."]
-  revision = "3536a929edddb9a5b34bd6861dc4a9647cb459fe"
-  version = "v1.1.2"
-
-[[projects]]
-  name = "github.com/peterh/liner"
-  packages = ["."]
-  revision = "5a0dfa99e2aa1d433a9642e863da51402e609376"
-  version = "v1.1.0"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "592852455fe8497b5b9faabc0074a4bd93ec7dd74d7caeac2c3b4a80a0cc55dd"
+  inputs-digest = "38e8a61d3bbad135601a43970575b66d14b5b44d1015fad3c8f8218cf74fa51d"
   solver-name = "gps-cdcl"
   solver-version = 1

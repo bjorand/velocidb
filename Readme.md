@@ -22,14 +22,14 @@ More details about Velocidb engine:
 Velocidb is in early development. We support a small subset of the Redis protocol to validate Velocidb distributed models.
 
 Here is a list of Redis "compatible" commands (commands are case-insensitive):
-- `INFO`
-- `PING`
+- `INFO [category]`
+- `PING [value]`
 - `GET <key>`
 - `SET <key> <value>`
 - `INCR <key>`
 - `DECR <key>`
 - `DEL <key>`
-- `KEYS *`
+- `KEYS <glob>`
 - `TIME`
 - `FLUSHDB`
 - `CLIENT LIST`

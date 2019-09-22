@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+
+	"github.com/gobwas/glob"
 )
 
 var (
@@ -83,9 +85,13 @@ func (m *MemoryStorage) Del(k string) bool {
 	return false
 }
 
-func (m *MemoryStorage) Keys() (keys []string) {
+func (m *MemoryStorage) Keys(filter string) (keys []string) {
+	var g glob.Glob
+	g = glob.MustCompile(filter)
 	for k := range m.data {
-		keys = append(keys, k)
+		if g.Match(k) {
+			keys = append(keys, k)
+		}
 	}
 	return keys
 }

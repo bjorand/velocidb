@@ -215,7 +215,7 @@ func (q *Query) WalWrite() {
 
 func infoStorage() (info []string) {
 	info = append(info, "# Keyspace")
-	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys())))
+	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys("*"))))
 	return info
 }
 
@@ -435,7 +435,7 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) != 1 {
 					return fmt.Errorf("Too many arguments")
 				}
-				for _, k := range storage.Keys() {
+				for _, k := range storage.Keys(args[0]) {
 					r.Payload = append(r.Payload, []byte(k))
 				}
 				r.Type = typeArray
