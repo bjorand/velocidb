@@ -442,6 +442,30 @@ func (q *Query) Execute() (*Response, error) {
 				return nil
 			},
 		},
+		"type": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				// TODO we need to support more types
+				r.PayloadString([]byte("string"))
+				r.Type = typeSimpleString
+				return nil
+			},
+		},
+		"select": {
+			"*": func() error {
+				if len(args) != 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				// TODO we have to implement multi db support
+				if args[0] != "0" {
+					return fmt.Errorf("invalid DB index")
+				}
+				r.OK()
+				return nil
+			},
+		},
 		"quit": {
 			"": func() error {
 				r.DisconnectSignal = true
