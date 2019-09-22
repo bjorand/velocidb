@@ -96,21 +96,40 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 
 func TestVQLPing(t *testing.T) {
 	setup()
+	var r *Response
+	var q *Query
+	var err error
+
 	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
 	if err != nil {
 		t.Errorf("Cannot create VQL server: %+v", err)
 	}
 	input := []byte("ping\r\n")
-	q, err := v.ParseRawQuery(input)
+	q, err = v.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
-	r, err := q.Execute()
+	r, err = q.Execute()
 	if err != nil {
 		t.Errorf("Cannot execute query: %+v", err)
 	}
 	expected := "+PONG\r\n"
 	output := r.FormattedPayload()
+	if expected != string(output) {
+		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
+	}
+
+	input = []byte("ping foobar\r\n")
+	q, err = v.ParseRawQuery(input)
+	if err != nil {
+		t.Errorf("Cannot parse raw query: %+v", err)
+	}
+	r, err = q.Execute()
+	if err != nil {
+		t.Errorf("Cannot execute query: %+v", err)
+	}
+	expected = "$6\r\nfoobar\r\n"
+	output = r.FormattedPayload()
 	if expected != string(output) {
 		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
 	}

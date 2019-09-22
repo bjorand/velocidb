@@ -21,6 +21,10 @@ type WalFileWriter struct {
 	WriteOps      int
 }
 
+func (w *WalFileWriter) WriteQueueSize() int {
+	return 0
+}
+
 func (w *walFile) Path() string {
 	return fmt.Sprintf("%s/%d.wal", w.wr.walDir, w.id)
 }

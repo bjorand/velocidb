@@ -341,6 +341,14 @@ func (q *Query) Execute() (*Response, error) {
 				r.PayloadString([]byte("PONG"))
 				return nil
 			},
+			"*": func() error {
+				if len(args) > 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				r.Type = typeBulkString
+				r.PayloadString([]byte(args[0]))
+				return nil
+			},
 		},
 		"flushdb": {
 			"": func() error {
