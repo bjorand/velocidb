@@ -159,16 +159,20 @@ func TestVQLQuit(t *testing.T) {
 
 func TestVQLScan(t *testing.T) {
 	setup()
+	var err error
+
 	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
 	if err != nil {
 		t.Errorf("Cannot create VQL server: %+v", err)
 	}
+	var q *Query
+	var r *Response
 	input := []byte("scan 0\r\n")
-	q, err := v.ParseRawQuery(input)
+	q, err = v.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
-	r, err := q.Execute()
+	r, err = q.Execute()
 	if err != nil {
 		t.Errorf("Cannot execute query: %+v", err)
 	}
@@ -177,6 +181,31 @@ func TestVQLScan(t *testing.T) {
 	if expected != string(output) {
 		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 	}
+	for i := 0; i < 10; i++ {
+		q, err = v.ParseRawQuery([]byte(fmt.Sprintf("incr a-%d\r\n", i)))
+		if err != nil {
+			t.Errorf("Cannot parse raw query: %+v", err)
+		}
+		_, err = q.Execute()
+		if err != nil {
+			t.Errorf("Cannot execute query: %+v", err)
+		}
+	}
+	input = []byte("scan 0\r\n")
+	q, err = v.ParseRawQuery(input)
+	if err != nil {
+		t.Errorf("Cannot parse raw query: %+v", err)
+	}
+	r, err = q.Execute()
+	if err != nil {
+		t.Errorf("Cannot execute query: %+v", err)
+	}
+	expected = "*2\r\n$1\r\n0\r\n*10"
+	output = r.FormattedPayload()
+	if !strings.HasPrefix(string(output), expected) {
+		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
+	}
+
 }
 
 func TestVQLQueries(t *testing.T) {
