@@ -353,6 +353,7 @@ func (q *Query) Execute() (*Response, error) {
 		"flushdb": {
 			"": func() error {
 				storage.FlushData()
+				q.WalWrite()
 				r.OK()
 				return nil
 			},
