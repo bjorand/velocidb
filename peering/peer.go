@@ -43,6 +43,7 @@ type Peer struct {
 	ListenAddr   string
 	Stats        *Stats
 	RemoveSignal bool
+	Name         string
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {

@@ -231,7 +231,7 @@ func infoWal(v *VQLTCPServer) (info []string) {
 
 func infoVQL(v *VQLTCPServer) (info []string) {
 	info = append(info, "# VQL")
-	info = append(info, fmt.Sprintf("connected_clients:%d", v.connectedClients))
+	info = append(info, fmt.Sprintf("connected_clients:%d", len(v.clients)))
 	return info
 }
 
@@ -298,10 +298,44 @@ func (q *Query) Execute() (*Response, error) {
 				r.Type = typeBulkString
 				var clients []string
 				for c := range q.v.clients {
-					clients = append(clients, fmt.Sprintf("id=%s addr=%s", c.id, c.addr))
+					clients = append(clients, fmt.Sprintf("id=%s addr=%s name=%s", c.id, c.conn.RemoteAddr().String(), c.name))
 				}
 				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(clients, "\r\n"))))
 				return nil
+			},
+			"setname": func() error {
+				// TODO have to implement this
+				if len(args) > 2 {
+					return fmt.Errorf("Too many arguments")
+				}
+				// client.name = args[1]
+				r.OK()
+				return nil
+			},
+			"getname": func() error {
+				if len(args) > 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				// r.PayloadString([]byte(client.name))
+				r.Type = typeBulkString
+				return nil
+			},
+			"kill": func() error {
+				if len(args) > 2 {
+					return fmt.Errorf("Too many arguments")
+				}
+				if len(args) == 1 || args[1] == "" {
+					return fmt.Errorf("syntax error")
+				}
+				// find client with "host:port"
+				for c := range q.v.clients {
+					if c.conn.RemoteAddr().String() == args[1] {
+						c.conn.Close()
+						r.OK()
+						return nil
+					}
+				}
+				return fmt.Errorf("No such client")
 			},
 		},
 		"info": {
@@ -566,16 +600,17 @@ func (q *Query) Execute() (*Response, error) {
 
 type Client struct {
 	id   string
-	addr string
+	name string
+	conn net.Conn
+	v    *VQLTCPServer
 }
 
 type VQLTCPServer struct {
-	Peer             *peering.Peer
-	ListenAddr       string
-	ListenPort       int64
-	connectedClients int
-	walWriter        *storagePkg.WalFileWriter
-	clients          map[*Client]bool
+	Peer       *peering.Peer
+	ListenAddr string
+	ListenPort int64
+	walWriter  *storagePkg.WalFileWriter
+	clients    map[*Client]bool
 }
 
 func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*VQLTCPServer, error) {
@@ -687,7 +722,6 @@ func (r *Response) FormattedPayload() []byte {
 }
 
 func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
-	fmt.Printf("[vql] Serving %s\n", conn.RemoteAddr().String())
 	// Make a buffer to hold incoming data.
 	var hasMoreData int
 	var query *Query
@@ -697,13 +731,17 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 	}
 	client := &Client{
 		id:   id.String(),
-		addr: conn.RemoteAddr().String(),
+		conn: conn,
+		v:    v,
 	}
+	fmt.Printf("[vql] Serving addr=%s\n", conn.RemoteAddr().String())
 	lock.Lock()
 	v.clients[client] = true
 	lock.Unlock()
 	defer func() {
 		lock.Lock()
+		conn.Close()
+		fmt.Printf("[vql] Connection closed addr=%s\n", conn.RemoteAddr().String())
 		delete(v.clients, client)
 		lock.Unlock()
 	}()
@@ -746,8 +784,6 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 			break
 		}
 	}
-	conn.Close()
-	fmt.Printf("[vql] Connection closed %s\n", conn.RemoteAddr().String())
 }
 
 func (v *VQLTCPServer) Shutdown() {

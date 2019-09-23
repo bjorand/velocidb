@@ -37,6 +37,9 @@ Here is a list of Redis "compatible" commands (commands are case-insensitive):
 - `TIME`
 - `FLUSHDB`
 - `CLIENT LIST`
+- `CLIENT SETNAME <value>`
+- `CLIENT GETNAME`
+- `CLIENT KILL <addr:port>`
 - `QUIT`
 
 Interactive session with `redis-cli`:
