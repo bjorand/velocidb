@@ -220,6 +220,7 @@ func TestVQLQueries(t *testing.T) {
 		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(f)*2, f), "+OK\r\n",
 		"client setname foobar", "+OK\r\n",
 		"client getname", "$6\r\nfoobar\r\n",
+		"ping foobar", "$6\r\nfoobar\r\n",
 	}
 	setup()
 	for i := 0; i < len(suites); i++ {
