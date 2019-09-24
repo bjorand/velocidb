@@ -18,12 +18,13 @@ import (
 )
 
 var (
-	verbs          = []string{"quit", "peer"}
-	firstByteArray = []byte("*")
-	endByte        = []byte("\r\n")
-	storage        *storagePkg.MemoryStorage
-	walWriter      *storagePkg.WalFileWriter
-	lock           = sync.RWMutex{}
+	verbs            = []string{"quit", "peer"}
+	firstByteArray   = []byte("*")
+	endByte          = []byte("\r\n")
+	storage          *storagePkg.MemoryStorage
+	walWriter        *storagePkg.WalFileWriter
+	lock             = sync.RWMutex{}
+	lastConnectionID int64
 )
 
 const (
@@ -298,7 +299,7 @@ func (q *Query) Execute() (*Response, error) {
 				r.Type = typeBulkString
 				var clients []string
 				for c := range q.v.clients {
-					clients = append(clients, fmt.Sprintf("id=%s addr=%s name=%s", c.id, c.conn.RemoteAddr().String(), c.name))
+					clients = append(clients, fmt.Sprintf("id=%d addr=%s name=%s", c.id, c.conn.RemoteAddr().String(), c.name))
 				}
 				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(clients, "\r\n"))))
 				return nil
@@ -330,7 +331,7 @@ func (q *Query) Execute() (*Response, error) {
 				// find client with "host:port"
 				for c := range q.v.clients {
 					if c.conn.RemoteAddr().String() == args[1] {
-						c.conn.Close()
+						r.DisconnectSignal = true
 						r.OK()
 						return nil
 					}
@@ -599,7 +600,7 @@ func (q *Query) Execute() (*Response, error) {
 }
 
 type Client struct {
-	id   string
+	id   int64
 	name string
 	conn net.Conn
 	v    *VQLTCPServer
@@ -630,6 +631,13 @@ func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*
 
 func (v *VQLTCPServer) StorageInit() *storagePkg.MemoryStorage {
 	return storagePkg.NewMemoryStorage()
+}
+
+func (v *VQLTCPServer) clientNextID() int64 {
+	lock.Lock()
+	defer lock.Unlock()
+	lastConnectionID++
+	return lastConnectionID
 }
 
 func (v *VQLTCPServer) Run() {
@@ -725,12 +733,8 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 	// Make a buffer to hold incoming data.
 	var hasMoreData int
 	var query *Query
-	id, err := uuid.NewUUID()
-	if err != nil {
-		panic(err)
-	}
 	client := &Client{
-		id:   id.String(),
+		id:   v.clientNextID(),
 		conn: conn,
 		v:    v,
 	}
