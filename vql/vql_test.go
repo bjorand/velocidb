@@ -11,11 +11,17 @@ import (
 
 var (
 	testPeer *peering.Peer
+	client   *VQLClient
 )
 
 func setup() {
 	var err error
 	testPeer, err = peering.NewPeer("localhost", 26000)
+	if err != nil {
+		panic(err)
+	}
+	client = &VQLClient{}
+	client.vqlTCPServer, err = NewVQLTCPServer(testPeer, "localhost", 26001)
 	if err != nil {
 		panic(err)
 	}
@@ -54,16 +60,9 @@ func TestReadInt(t *testing.T) {
 }
 
 func TestVQLTCPServerParseRawQuery(t *testing.T) {
-	p, err := peering.NewPeer("localhost", 26000)
-	if err != nil {
-		t.Errorf("Cannot create peer: %+v", err)
-	}
-	v, err := NewVQLTCPServer(p, "localhost", 26001)
-	if err != nil {
-		t.Errorf("Cannot create VQL server: %+v", err)
-	}
+
 	input := []byte("ping\r\n")
-	q, err := v.ParseRawQuery(input)
+	q, err := client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -73,7 +72,7 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 		t.Errorf("want %+v, got %+v", []byte(expected), []byte(output))
 	}
 	input = []byte("peer connect 192.168.0.2\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -83,7 +82,7 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 	}
 	input = []byte("*3\r\n$4\r\npeer\r\n$7\r\nconnect\r\n$11\r\n192.168.0.2\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -100,12 +99,8 @@ func TestVQLPing(t *testing.T) {
 	var q *Query
 	var err error
 
-	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
-	if err != nil {
-		t.Errorf("Cannot create VQL server: %+v", err)
-	}
 	input := []byte("ping\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -120,7 +115,7 @@ func TestVQLPing(t *testing.T) {
 	}
 
 	input = []byte("ping foobar\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -137,12 +132,8 @@ func TestVQLPing(t *testing.T) {
 
 func TestVQLQuit(t *testing.T) {
 	setup()
-	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
-	if err != nil {
-		t.Errorf("Cannot create VQL server: %+v", err)
-	}
 	input := []byte("quit\r\n")
-	q, err := v.ParseRawQuery(input)
+	q, err := client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -160,15 +151,10 @@ func TestVQLQuit(t *testing.T) {
 func TestVQLScan(t *testing.T) {
 	setup()
 	var err error
-
-	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
-	if err != nil {
-		t.Errorf("Cannot create VQL server: %+v", err)
-	}
 	var q *Query
 	var r *Response
 	input := []byte("scan 0\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -182,7 +168,7 @@ func TestVQLScan(t *testing.T) {
 		t.Errorf("want %s, got %s", []byte(expected), []byte(output))
 	}
 	for i := 0; i < 10; i++ {
-		q, err = v.ParseRawQuery([]byte(fmt.Sprintf("incr a-%d\r\n", i)))
+		q, err = client.ParseRawQuery([]byte(fmt.Sprintf("incr a-%d\r\n", i)))
 		if err != nil {
 			t.Errorf("Cannot parse raw query: %+v", err)
 		}
@@ -192,7 +178,7 @@ func TestVQLScan(t *testing.T) {
 		}
 	}
 	input = []byte("scan 0\r\n")
-	q, err = v.ParseRawQuery(input)
+	q, err = client.ParseRawQuery(input)
 	if err != nil {
 		t.Errorf("Cannot parse raw query: %+v", err)
 	}
@@ -232,16 +218,14 @@ func TestVQLQueries(t *testing.T) {
 		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(b)*2, b), "+OK\r\n",
 		"get key", fmt.Sprintf("$%d\r\n%x\r\n", len(b)*2, b),
 		fmt.Sprintf("*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$%d\r\n%x\r\n", len(f)*2, f), "+OK\r\n",
+		"client setname foobar", "+OK\r\n",
+		"client getname", "$6\r\nfoobar\r\n",
 	}
 	setup()
-	v, err := NewVQLTCPServer(testPeer, "localhost", 26001)
-	if err != nil {
-		t.Errorf("Cannot create VQL server: %+v", err)
-	}
 	for i := 0; i < len(suites); i++ {
 		input := []byte(suites[i])
 		expected := suites[i+1]
-		q, errP := v.ParseRawQuery(input)
+		q, errP := client.ParseRawQuery(input)
 		if errP != nil {
 			t.Errorf("Cannot parse raw query: %+v", errP)
 		}
