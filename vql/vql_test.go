@@ -21,7 +21,7 @@ func setup() {
 		panic(err)
 	}
 	client = &VQLClient{}
-	client.vqlTCPServer, err = NewVQLTCPServer(testPeer, "localhost", 26001)
+	client.vqlTCPServer, err = NewVQLTCPServer(nil, "localhost", 26001)
 	if err != nil {
 		panic(err)
 	}

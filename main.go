@@ -26,6 +26,7 @@ var (
 	listenPeerFlag = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
 	listenVQLFlag  = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
 	peers          = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")
+	disableVQL     = flag.Bool("disable-vql", false, "Disable VQL server")
 )
 
 type Config struct {
@@ -126,12 +127,15 @@ func main() {
 
 	go peer.Run()
 	defer peer.Shutdown()
-	v, err := vql.NewVQLTCPServer(peer, hostVQL, portVQL)
-	if err != nil {
-		panic(err)
+
+	if !*disableVQL {
+		v, err := vql.NewVQLTCPServer(peer, hostVQL, portVQL)
+		if err != nil {
+			panic(err)
+		}
+		go v.Run()
+		defer v.Shutdown()
 	}
-	go v.Run()
-	defer v.Shutdown()
 	<-quit
 	log.Println("Clean shutdown done")
 }

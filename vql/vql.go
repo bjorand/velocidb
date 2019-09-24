@@ -271,14 +271,10 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) < 2 {
 					return fmt.Errorf(Help("peer"))
 				}
-				host, port, err := utils.SplitHostPort(args[1])
-				if err != nil {
-					return err
-				}
 				go func() {
 					q.c.vqlTCPServer.Peer.ConnectToPeerAddr(args[1])
 				}()
-				r.Payload[0] = []byte(fmt.Sprintf("Connecting to peer %s:%d\n", host, port))
+				r.OK()
 				return nil
 			},
 			"remove": func() error {
