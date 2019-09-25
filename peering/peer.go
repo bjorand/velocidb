@@ -44,6 +44,7 @@ type Peer struct {
 	Stats        *Stats
 	RemoveSignal bool
 	Name         string
+	mesh         *mesh
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {
@@ -57,6 +58,7 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 		ListenAddr: listenAddr,
 		ListenPort: port,
 		Stats:      &Stats{},
+		mesh:       newMesh(),
 	}, nil
 }
 
@@ -113,7 +115,7 @@ func (p *Peer) RemovePeer(dead *Peer) {
 
 func (p *Peer) connectToPeer(newPeer *Peer) {
 	defer func() {
-		delete(p.Peers, newPeer.Key())
+		p.mesh.deregister <- newPeer
 	}()
 	initialPause := 2
 	maxPause := 60
@@ -135,6 +137,7 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 		}
 		fmt.Printf("[peer %s] Connected\n", newPeer.connString())
 		newPeer.RemoteConn = conn
+		p.mesh.register <- newPeer
 		pause = initialPause
 		defer conn.Close()
 		for {
