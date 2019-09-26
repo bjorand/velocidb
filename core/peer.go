@@ -1,4 +1,4 @@
-package peering
+package core
 
 import (
 	"fmt"
@@ -33,18 +33,19 @@ type Stats struct {
 }
 
 type Peer struct {
-	ID           string
-	Tags         []string
-	RemoteConn   net.Conn
-	Protocol     string
-	Height       int64
-	Peers        map[string]*Peer
-	ListenPort   int64
-	ListenAddr   string
-	Stats        *Stats
-	RemoveSignal bool
-	Name         string
-	mesh         *mesh
+	ID               string
+	Tags             []string
+	RemoteConn       net.Conn
+	Protocol         string
+	Height           int64
+	ListenPort       int64
+	ListenAddr       string
+	Stats            *Stats
+	RemoveSignal     bool
+	Name             string
+	Mesh             *Mesh
+	broadcastBulkVQL chan []byte
+	vqlClient        *VQLClient
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {
@@ -53,12 +54,12 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 		log.Fatal(err)
 	}
 	return &Peer{
-		ID:         id.String(),
-		Peers:      make(map[string]*Peer),
-		ListenAddr: listenAddr,
-		ListenPort: port,
-		Stats:      &Stats{},
-		mesh:       newMesh(),
+		ID:               id.String(),
+		ListenAddr:       listenAddr,
+		ListenPort:       port,
+		Stats:            &Stats{},
+		Mesh:             newMesh(),
+		broadcastBulkVQL: make(chan []byte, 1024),
 	}, nil
 }
 
@@ -81,11 +82,11 @@ func (p *Peer) Info() (info map[string]interface{}) {
 
 }
 
-func (p *Peer) ConnectionStatus() string {
+func (p *Peer) ConnectionStatus() int64 {
 	if p.RemoteConn != nil {
-		return PEER_STATUS_TEXT[PEER_STATUS_CONNECTED]
+		return PEER_STATUS_CONNECTED
 	}
-	return PEER_STATUS_TEXT[PEER_STATUS_NO_CONNECTION]
+	return PEER_STATUS_NO_CONNECTION
 }
 
 func (p *Peer) ConnectToPeerAddr(peerConnString string) error {
@@ -115,12 +116,11 @@ func (p *Peer) RemovePeer(dead *Peer) {
 
 func (p *Peer) connectToPeer(newPeer *Peer) {
 	defer func() {
-		p.mesh.deregister <- newPeer
+		p.Mesh.deregister <- newPeer
 	}()
 	initialPause := 2
 	maxPause := 60
 	pause := initialPause
-	p.Peers[newPeer.Key()] = newPeer
 	for {
 		if newPeer.RemoveSignal {
 			break
@@ -137,16 +137,16 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 		}
 		fmt.Printf("[peer %s] Connected\n", newPeer.connString())
 		newPeer.RemoteConn = conn
-		p.mesh.register <- newPeer
+		p.Mesh.register <- newPeer
 		pause = initialPause
 		defer conn.Close()
 		for {
 			if newPeer.RemoveSignal {
 				break
 			}
-			if p.ID != "" {
-				fmt.Fprintf(conn, "PEER ID")
-			}
+			// if p.ID != "" {
+			// 	fmt.Fprintf(conn, "PEER ID")
+			// }
 			reply := make([]byte, 1024)
 			n, err := conn.Read(reply)
 			newPeer.Stats.BytesIn += int64(n)
@@ -193,13 +193,21 @@ func (r *PeerRequest) Execute() error {
 }
 
 func (p *Peer) ParsePeerRequest(input []byte) (*PeerRequest, error) {
-	switch string(input) {
-	case "PEER ID":
-		return &PeerRequest{
-			Payload: []byte("+ID " + p.ID),
-		}, nil
-	default:
-		fmt.Println("Unknown peer request:", string(input))
+	// switch string(input) {
+	// case "PEER ID":
+	// 	return &PeerRequest{
+	// 		Payload: []byte("+ID " + p.ID),
+	// 	}, nil
+	// default:
+	// 	fmt.Println("Unknown peer request:", string(input))
+	// }
+	q, err := p.vqlClient.ParseRawQuery(input)
+	if err != nil {
+		fmt.Printf("[peer] Cannot parse vql query: %+v", err)
+	}
+	_, err = q.Execute()
+	if err != nil {
+		fmt.Printf("Cannot execute query: %+v", err)
 	}
 	return &PeerRequest{}, nil
 }
@@ -239,4 +247,12 @@ func (p *Peer) HandlePeerRequest(s *tcp.TCPServer, conn net.Conn) {
 }
 
 func (p *Peer) Shutdown() {
+}
+
+func (p *Peer) PublishVQL(query []byte) {
+	for p := range p.Mesh.Peers {
+		if p.ConnectionStatus() == PEER_STATUS_CONNECTED {
+			p.RemoteConn.Write(query)
+		}
+	}
 }

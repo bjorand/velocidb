@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	vql "github.com/bjorand/velocidb/vql"
+	"github.com/bjorand/velocidb/core"
 )
 
 const (
@@ -72,7 +72,7 @@ func connect(server string, next int64, firstConnection bool) {
 			reconnect(server, next)
 		}
 		next = initalReconnectDelay
-		resp, err := vql.ParseRawResponse(reply[:n])
+		resp, err := core.ParseRawResponse(reply[:n])
 		if err != nil {
 			fmt.Println(err)
 			continue

@@ -1,4 +1,4 @@
-package peering
+package core
 
 import (
 	"testing"
@@ -14,11 +14,12 @@ func TestPeering(t *testing.T) {
 		t.Error(err)
 	}
 	go p1.Run()
-	output := len(p1.mesh.peers)
+	output := len(p1.Mesh.Peers)
 	expected := 0
 	if expected != output {
 		t.Errorf("want %+v, got %+v", expected, output)
 	}
+
 }
 
 // 	p2, err := NewPeer("127.0.0.1", 64002)

@@ -1,38 +1,12 @@
-package vql
+package core
 
 import (
-	"bytes"
 	"fmt"
-	"net"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/bjorand/velocidb/peering"
-	storagePkg "github.com/bjorand/velocidb/storage"
-	tcp "github.com/bjorand/velocidb/tcp"
 	"github.com/bjorand/velocidb/utils"
-	"github.com/google/uuid"
-)
-
-var (
-	verbs            = []string{"quit", "peer"}
-	firstByteArray   = []byte("*")
-	endByte          = []byte("\r\n")
-	storage          *storagePkg.MemoryStorage
-	walWriter        *storagePkg.WalFileWriter
-	lock             = sync.RWMutex{}
-	lastConnectionID int64
-)
-
-const (
-	typeArray        = "*"
-	typeInteger      = ":"
-	typeSimpleString = "+"
-	typeBulkString   = "$"
-	typeError        = "-"
 )
 
 type Query struct {
@@ -41,50 +15,6 @@ type Query struct {
 	parsed      [][]byte
 	c           *VQLClient
 	hasMoreData int
-}
-
-type Response struct {
-	Payload          [][]byte
-	DisconnectSignal bool
-	Type             string
-}
-
-func NewResponse() *Response {
-	return &Response{
-		// Payload: make([][]byte),
-	}
-}
-
-func (r *Response) PayloadString(s []byte) {
-	r.Payload = make([][]byte, 1)
-	r.Payload[0] = s
-}
-
-func (r *Response) OK() {
-	r.PayloadString([]byte("OK"))
-}
-
-func SanitizeTextInput(data []byte) string {
-	d := string(data)
-	d = strings.Trim(d, " \r\n")
-	return d
-}
-
-func Sanitize(data []byte) []byte {
-	// d := string(data)
-	// return strings.Trim(d, " \r\n")
-	return data
-}
-
-func ParseRawResponse(data []byte) (*Response, error) {
-	r := NewResponse()
-	if len(r.Payload) > 0 {
-		r.Payload[0] = Sanitize(data)
-	}
-	// if r.Payload == "+ATH0" {
-	// 	r.DisconnectSignal = true
-	// }
-	return r, nil
 }
 
 func readInt(data []byte, cursor int) (int, int) {
@@ -101,55 +31,6 @@ func readInt(data []byte, cursor int) (int, int) {
 	}
 
 	return -1, cursor
-}
-
-func (c *VQLClient) ParseRawQuery(data []byte) (*Query, error) {
-	// text := Sanitize(data)
-	var readCur int
-	var bytesToRead int
-	var elementsCount int
-	var initialRow int
-
-	id, err := uuid.NewUUID()
-	if err != nil {
-		panic(err)
-	}
-	q := &Query{
-		raw: data,
-		id:  id.String(),
-		c:   c,
-	}
-
-	for i, d := range data {
-		if d == '*' {
-			readCur = i + 1
-			elementsCount, readCur = readInt(data[readCur:], readCur)
-			for row := initialRow; row < elementsCount; row++ {
-				if data[readCur] == '$' {
-					readCur++
-					bytesToRead, readCur = readInt(data[readCur:], readCur)
-					if len(data) >= readCur+bytesToRead {
-						q.parsed = append(q.parsed, data[readCur:readCur+bytesToRead])
-					} else {
-						q.parsed = append(q.parsed, data[readCur:])
-						q.hasMoreData = bytesToRead - len(data) - readCur
-						break
-					}
-					readCur += bytesToRead + len(endByte)
-				}
-			}
-		} else {
-			for _, w := range bytes.Split(data, []byte(" ")) {
-				w = bytes.Trim(w, string(endByte))
-				q.parsed = append(q.parsed, []byte(w))
-			}
-			break
-		}
-		break
-
-	}
-
-	return q, nil
 }
 
 func (q *Query) words() []string {
@@ -176,6 +57,8 @@ func (q *Query) args() []string {
 
 func (q *Query) Set(key string, value []byte) {
 	storage.Set(key, value)
+	q.WalWrite()
+
 }
 
 func (q *Query) Incr(key string) ([]byte, error) {
@@ -207,47 +90,11 @@ func (q *Query) Del(keys ...string) []byte {
 		}
 	}
 	return []byte(fmt.Sprintf("%d", deletedCount))
-
 }
 
 func (q *Query) WalWrite() {
-	walWriter.SyncWrite(q.raw)
-}
-
-func infoStorage() (info []string) {
-	info = append(info, "# Keyspace")
-	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys("*"))))
-	return info
-}
-
-func infoWal(v *VQLTCPServer) (info []string) {
-	walFilesize, _ := v.walWriter.WalFile.Size()
-	info = append(info, "# Wal")
-	info = append(info, fmt.Sprintf("current_wal_file:%s", v.walWriter.WalFile.Path()))
-	info = append(info, fmt.Sprintf("current_wal_file_size_bytes:%d", walFilesize))
-	info = append(info, fmt.Sprintf("write_bytes:%d", v.walWriter.BytesWritten))
-	info = append(info, fmt.Sprintf("write_ops:%d", v.walWriter.WriteOps))
-	return info
-}
-
-func infoVQL(v *VQLTCPServer) (info []string) {
-	info = append(info, "# VQL")
-	info = append(info, fmt.Sprintf("connected_clients:%d", len(v.clients)))
-	return info
-}
-
-func infoServer(peer *peering.Peer) (info []string) {
-	info = append(info, "# Server")
-	peerInfo := peer.Info()
-	names := make([]string, 0, len(peerInfo))
-	for name := range peerInfo {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		info = append(info, fmt.Sprintf("%s:%+v", name, peerInfo[name]))
-	}
-	return info
+	q.c.vqlTCPServer.walWriter.SyncWrite(q.raw)
+	// q.
 }
 
 func (q *Query) Execute() (*Response, error) {
@@ -256,12 +103,12 @@ func (q *Query) Execute() (*Response, error) {
 	syntax := map[string]map[string]func() error{
 		"peer": {
 			"list": func() error {
-				for _, peer := range q.c.vqlTCPServer.Peer.Peers {
+				for peer := range q.c.vqlTCPServer.Peer.Mesh.Peers {
 					r.Payload = append(r.Payload, []byte(fmt.Sprintf("*%s\t%s:%d\tConnection:%s\tBytesIn:%s\n",
 						peer.ID,
 						peer.ListenAddr,
 						peer.ListenPort,
-						peer.ConnectionStatus(),
+						PEER_STATUS_TEXT[peer.ConnectionStatus()],
 						utils.HumanSizeBytes(peer.Stats.BytesIn),
 					)))
 				}
@@ -281,7 +128,7 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) < 2 {
 					return fmt.Errorf(Help("peer"))
 				}
-				peer := q.c.vqlTCPServer.Peer.Peers[args[1]]
+				peer := q.c.vqlTCPServer.Peer.Mesh.GetPeerByKey(args[1])
 				if peer != nil {
 					q.c.vqlTCPServer.Peer.RemovePeer(peer)
 					r.OK()
@@ -405,7 +252,6 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too few arguments")
 				}
 				q.Set(args[0], q.parsed[2])
-				q.WalWrite()
 				r.OK()
 				return nil
 			},
@@ -592,201 +438,4 @@ func (q *Query) Execute() (*Response, error) {
 		return r, err
 	}
 	return nil, nil
-}
-
-type VQLClient struct {
-	id           int64
-	name         string
-	conn         net.Conn
-	vqlTCPServer *VQLTCPServer
-}
-
-type VQLTCPServer struct {
-	Peer       *peering.Peer
-	ListenAddr string
-	ListenPort int64
-	walWriter  *storagePkg.WalFileWriter
-	clients    map[*VQLClient]bool
-}
-
-func NewVQLTCPServer(peer *peering.Peer, listenAddr string, listenPort int64) (*VQLTCPServer, error) {
-
-	v := &VQLTCPServer{
-		Peer:       peer,
-		ListenAddr: listenAddr,
-		ListenPort: listenPort,
-		clients:    make(map[*VQLClient]bool),
-	}
-	storage = v.StorageInit()
-	walWriter = storagePkg.NewWalFileWriter("/tmp")
-	go walWriter.Run()
-	v.walWriter = walWriter
-	return v, nil
-}
-
-func (v *VQLTCPServer) StorageInit() *storagePkg.MemoryStorage {
-	return storagePkg.NewMemoryStorage()
-}
-
-func (v *VQLTCPServer) clientNextID() int64 {
-	lock.Lock()
-	defer lock.Unlock()
-	lastConnectionID++
-	return lastConnectionID
-}
-
-func (v *VQLTCPServer) Run() {
-	defer walWriter.Close()
-	s, err := tcp.NewTCPServer(v.ListenAddr, v.ListenPort)
-	if err != nil {
-		panic(err)
-	}
-	s.Run("vql", v.HandleVQLRequest)
-}
-
-func (r *Response) Size() int {
-	return len(r.Payload)
-}
-
-func (r *Response) isBulkString() bool {
-	if r.Type == typeBulkString {
-		return true
-	}
-	return false
-}
-
-func (r *Response) isArray() bool {
-	if r.Type == typeArray {
-		return true
-	}
-	return false
-}
-
-func (r *Response) isInteger() bool {
-	if r.Type == typeInteger {
-		return true
-	}
-	return false
-}
-
-func (r *Response) isNullBulkString() bool {
-	if r.Type == typeBulkString && len(r.Payload[0]) == 0 {
-		return true
-	}
-	return false
-}
-
-func formattedArray(items [][]byte) []byte {
-	payload := []byte(fmt.Sprintf("*%d\r\n", len(items)))
-	for i := 0; i < len(items); i++ {
-		if !bytes.HasPrefix(items[i], []byte("*")) {
-			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(items[i])))...)
-		}
-		payload = append(payload, items[i]...)
-		payload = append(payload, []byte("\r\n")...)
-	}
-	return payload
-}
-
-func (r *Response) FormattedPayload() []byte {
-	var payload []byte
-
-	if len(r.Payload) == 1 && !r.isArray() {
-
-		if r.isBulkString() {
-			if r.isNullBulkString() {
-				payload = []byte("$-1")
-			} else {
-				payload = []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[0])))
-				payload = append(payload, r.Payload[0]...)
-			}
-		} else if r.isInteger() {
-			payload = []byte(fmt.Sprintf(":%s", r.Payload[0]))
-		} else {
-			payload = []byte(fmt.Sprintf("+%s", r.Payload[0]))
-		}
-		payload = append(payload, "\r\n"...)
-
-	} else {
-		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
-		for i := 0; i < len(r.Payload); i++ {
-
-			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
-				payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
-			}
-			payload = append(payload, r.Payload[i]...)
-			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
-				payload = append(payload, []byte("\r\n")...)
-			}
-		}
-
-	}
-	return payload
-}
-
-func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
-	// Make a buffer to hold incoming data.
-	var hasMoreData int
-	var query *Query
-	client := &VQLClient{
-		id:           v.clientNextID(),
-		conn:         conn,
-		vqlTCPServer: v,
-	}
-	fmt.Printf("[vql] Serving addr=%s\n", conn.RemoteAddr().String())
-	lock.Lock()
-	v.clients[client] = true
-	lock.Unlock()
-	defer func() {
-		lock.Lock()
-		conn.Close()
-		fmt.Printf("[vql] Connection closed addr=%s\n", conn.RemoteAddr().String())
-		delete(v.clients, client)
-		lock.Unlock()
-	}()
-	for {
-		buf := make([]byte, 1024)
-		// Read the incoming connection into the buffer.
-		reqLen, err := conn.Read(buf)
-		if err != nil {
-			fmt.Println("[vql] -Error reading:", err.Error())
-			break
-		}
-		if hasMoreData > 0 {
-			query.parsed[len(query.parsed)-1] = append(query.parsed[len(query.parsed)-1], buf[:reqLen]...)
-			hasMoreData = hasMoreData - reqLen
-			if hasMoreData > 0 {
-				continue
-			} else {
-				hasMoreData = -1
-			}
-		}
-		// extended read finished
-		if hasMoreData == 0 {
-			query, err = client.ParseRawQuery(buf[:reqLen])
-			if err != nil {
-				conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
-				continue
-			}
-			hasMoreData = query.hasMoreData
-			if hasMoreData > 0 {
-				continue
-			}
-		}
-		resp, err := query.Execute()
-		if err != nil {
-			conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
-			continue
-		}
-		conn.Write(resp.FormattedPayload())
-		if resp.DisconnectSignal {
-			break
-		}
-	}
-}
-
-func (v *VQLTCPServer) Shutdown() {
-	walWriter.Close()
-	<-walWriter.WaitTerminate
-	fmt.Println("[vql] shutdown")
 }

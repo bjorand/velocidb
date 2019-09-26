@@ -1,4 +1,4 @@
-package peering
+package core
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ func TestMesh(t *testing.T) {
 	m.register <- p1
 	m.register <- p2
 	time.Sleep(100 * time.Millisecond)
-	output := len(m.peers)
+	output := len(m.Peers)
 	expected := 2
 	if expected != output {
 		t.Errorf("want %+v, got %+v", expected, output)

@@ -1,4 +1,4 @@
-package vql
+package core
 
 func Help(topic string) string {
 	help := make(map[string]string)

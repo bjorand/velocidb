@@ -10,9 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	peering "github.com/bjorand/velocidb/peering"
+	"github.com/bjorand/velocidb/core"
 	utils "github.com/bjorand/velocidb/utils"
-	vql "github.com/bjorand/velocidb/vql"
 )
 
 const (
@@ -115,7 +114,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	peer, err := peering.NewPeer(hostPeer, portPeer)
+	peer, err := core.NewPeer(hostPeer, portPeer)
 	if err != nil {
 		panic(err)
 	}
@@ -129,7 +128,7 @@ func main() {
 	defer peer.Shutdown()
 
 	if !*disableVQL {
-		v, err := vql.NewVQLTCPServer(peer, hostVQL, portVQL)
+		v, err := core.NewVQLTCPServer(peer, hostVQL, portVQL)
 		if err != nil {
 			panic(err)
 		}

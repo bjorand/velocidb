@@ -1,31 +1,15 @@
-package vql
+package core
 
 import (
 	"fmt"
 	"io/ioutil"
 	"strings"
 	"testing"
-
-	peering "github.com/bjorand/velocidb/peering"
 )
 
 var (
-	testPeer *peering.Peer
-	client   *VQLClient
+	client *VQLClient
 )
-
-func setup() {
-	var err error
-	testPeer, err = peering.NewPeer("localhost", 26000)
-	if err != nil {
-		panic(err)
-	}
-	client = &VQLClient{}
-	client.vqlTCPServer, err = NewVQLTCPServer(nil, "localhost", 26001)
-	if err != nil {
-		panic(err)
-	}
-}
 
 func TestSanitizeTextInput(t *testing.T) {
 	input := " TEST   \r\n\n   \n"
@@ -33,29 +17,6 @@ func TestSanitizeTextInput(t *testing.T) {
 	expected := "TEST"
 	if expected != output {
 		t.Errorf("want %+v, got %+v", expected, output)
-	}
-}
-
-// func TestParseResponseQuit(t *testing.T) {
-// 	payload := "+ATH0"
-// 	resp, _ := ParseRawResponse([]byte(payload))
-// 	output := resp.DisconnectSignal
-// 	expected := true
-// 	if expected != output {
-// 		t.Errorf("want %+v, got %+v", expected, output)
-// 	}
-// }
-
-func TestReadInt(t *testing.T) {
-	input := []byte("33994\r\n$99")
-	output, outputCursor := readInt(input, 0)
-	expected := 33994
-	expectedCursor := 7
-	if expected != output {
-		t.Errorf("want %+v, got %+v", expected, output)
-	}
-	if expectedCursor != outputCursor {
-		t.Errorf("want %+v, got %+v", expectedCursor, outputCursor)
 	}
 }
 
