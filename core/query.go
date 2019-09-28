@@ -69,13 +69,13 @@ func (q *Query) args() []string {
 }
 
 func (q *Query) Set(key string, value []byte) {
-	storage.Set(key, value)
+	q.c.vqlTCPServer.Peer.storage.Set(key, value)
 	q.WalWrite()
 
 }
 
 func (q *Query) Incr(key string) ([]byte, error) {
-	v, err := storage.Incr(key)
+	v, err := q.c.vqlTCPServer.Peer.storage.Incr(key)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (q *Query) Incr(key string) ([]byte, error) {
 }
 
 func (q *Query) Decr(key string) ([]byte, error) {
-	v, err := storage.Decr(key)
+	v, err := q.c.vqlTCPServer.Peer.storage.Decr(key)
 	if err != nil {
 		return nil, err
 	}
@@ -91,13 +91,13 @@ func (q *Query) Decr(key string) ([]byte, error) {
 }
 
 func (q *Query) Get(key string) []byte {
-	return storage.Get(key)
+	return q.c.vqlTCPServer.Peer.storage.Get(key)
 }
 
 func (q *Query) Del(keys ...string) []byte {
 	var deletedCount int
 	for _, key := range keys {
-		deleted := storage.Del(key)
+		deleted := q.c.vqlTCPServer.Peer.storage.Del(key)
 		if deleted {
 			deletedCount = deletedCount + 1
 		}
@@ -106,8 +106,8 @@ func (q *Query) Del(keys ...string) []byte {
 }
 
 func (q *Query) WalWrite() {
-	q.c.vqlTCPServer.walWriter.SyncWrite(q.raw)
-	// q.
+	q.c.vqlTCPServer.Peer.walWriter.SyncWrite(q.raw)
+	q.c.vqlTCPServer.Peer.PublishVQL(q.raw)
 }
 
 func (q *Query) Execute() (*Response, error) {
@@ -202,7 +202,7 @@ func (q *Query) Execute() (*Response, error) {
 			},
 			"keyspace": func() error {
 				r.Type = typeBulkString
-				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoStorage(), "\r\n"))))
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoStorage(q.c.vqlTCPServer), "\r\n"))))
 				return nil
 			},
 			"vql": func() error {
@@ -218,7 +218,7 @@ func (q *Query) Execute() (*Response, error) {
 			"": func() error {
 				var info []string
 				info = append(info, infoServer(q.c.vqlTCPServer.Peer)...)
-				info = append(info, infoStorage()...)
+				info = append(info, infoStorage(q.c.vqlTCPServer)...)
 				info = append(info, infoVQL(q.c.vqlTCPServer)...)
 				info = append(info, infoWal(q.c.vqlTCPServer)...)
 				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(info, "\r\n"))))
@@ -242,7 +242,7 @@ func (q *Query) Execute() (*Response, error) {
 		},
 		"flushdb": {
 			"": func() error {
-				storage.FlushData()
+				q.c.vqlTCPServer.Peer.storage.FlushData()
 				q.WalWrite()
 				r.OK()
 				return nil
@@ -325,7 +325,7 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) != 1 {
 					return fmt.Errorf("Too many arguments")
 				}
-				for _, k := range storage.Keys(args[0]) {
+				for _, k := range q.c.vqlTCPServer.Peer.storage.Keys(args[0]) {
 					r.Payload = append(r.Payload, []byte(k))
 				}
 				r.Type = typeArray
@@ -361,7 +361,7 @@ func (q *Query) Execute() (*Response, error) {
 				}
 				var keys []string
 				var err error
-				err, cursor, keys = storage.Scan(cursor, count, match, typeFilter)
+				err, cursor, keys = q.c.vqlTCPServer.Peer.storage.Scan(cursor, count, match, typeFilter)
 				if err != nil {
 					return err
 				}

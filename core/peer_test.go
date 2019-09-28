@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"testing"
-	"time"
 )
 
 func TestPeering(t *testing.T) {
@@ -31,7 +30,7 @@ func TestPeering(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	time.Sleep(10 * time.Second)
+	// time.Sleep(10 * time.Second)
 	output := p1.ConnectionStatus()
 	expected := PEER_STATUS_CONNECTED
 	if expected != output {

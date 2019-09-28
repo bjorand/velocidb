@@ -5,7 +5,6 @@ import (
 	"net"
 	"sort"
 
-	storagePkg "github.com/bjorand/velocidb/storage"
 	tcp "github.com/bjorand/velocidb/tcp"
 )
 
@@ -17,7 +16,6 @@ type VQLTCPServer struct {
 	Peer       *Peer
 	ListenAddr string
 	ListenPort int64
-	walWriter  *storagePkg.WalFileWriter
 	clients    map[*VQLClient]bool
 }
 
@@ -40,7 +38,6 @@ func (v *VQLTCPServer) clientNextID() int64 {
 }
 
 func (v *VQLTCPServer) Run() {
-	defer v.walWriter.Close()
 	s, err := tcp.NewTCPServer(v.ListenAddr, v.ListenPort)
 	if err != nil {
 		panic(err)
@@ -110,24 +107,23 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 }
 
 func (v *VQLTCPServer) Shutdown() {
-	v.walWriter.Close()
-	<-v.walWriter.WaitTerminate
+
 	fmt.Println("[vql] shutdown")
 }
 
-func infoStorage() (info []string) {
+func infoStorage(v *VQLTCPServer) (info []string) {
 	info = append(info, "# Keyspace")
-	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys("*"))))
+	info = append(info, fmt.Sprintf("db0:keys=%d", len(v.Peer.storage.Keys("*"))))
 	return info
 }
 
 func infoWal(v *VQLTCPServer) (info []string) {
-	walFilesize, _ := v.walWriter.WalFile.Size()
+	walFilesize, _ := v.Peer.walWriter.WalFile.Size()
 	info = append(info, "# Wal")
-	info = append(info, fmt.Sprintf("current_wal_file:%s", v.walWriter.WalFile.Path()))
+	info = append(info, fmt.Sprintf("current_wal_file:%s", v.Peer.walWriter.WalFile.Path()))
 	info = append(info, fmt.Sprintf("current_wal_file_size_bytes:%d", walFilesize))
-	info = append(info, fmt.Sprintf("write_bytes:%d", v.walWriter.BytesWritten))
-	info = append(info, fmt.Sprintf("write_ops:%d", v.walWriter.WriteOps))
+	info = append(info, fmt.Sprintf("write_bytes:%d", v.Peer.walWriter.BytesWritten))
+	info = append(info, fmt.Sprintf("write_ops:%d", v.Peer.walWriter.WriteOps))
 	return info
 }
 

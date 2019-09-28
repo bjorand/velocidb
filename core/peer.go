@@ -50,6 +50,7 @@ type Peer struct {
 	broadcastBulkVQL chan []byte
 	vqlClient        *VQLClient
 	storage          *storagePkg.MemoryStorage
+	walWriter        *storagePkg.WalFileWriter
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {
@@ -224,6 +225,10 @@ func (p *Peer) Run() {
 		panic(err)
 	}
 	go p.walWriter.Run()
+	defer func() {
+		p.walWriter.Close()
+
+	}()
 	s.Run("peer", p.HandlePeerRequest)
 }
 
@@ -254,6 +259,9 @@ func (p *Peer) HandlePeerRequest(s *tcp.TCPServer, conn net.Conn) {
 }
 
 func (p *Peer) Shutdown() {
+	p.walWriter.Close()
+	<-p.walWriter.WaitTerminate
+	fmt.Println("Peer shutdown")
 }
 
 func (p *Peer) PublishVQL(query []byte) {
