@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -31,6 +32,18 @@ func readInt(data []byte, cursor int) (int, int) {
 	}
 
 	return -1, cursor
+}
+
+func formattedArray(items [][]byte) []byte {
+	payload := []byte(fmt.Sprintf("*%d\r\n", len(items)))
+	for i := 0; i < len(items); i++ {
+		if !bytes.HasPrefix(items[i], []byte("*")) {
+			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(items[i])))...)
+		}
+		payload = append(payload, items[i]...)
+		payload = append(payload, []byte("\r\n")...)
+	}
+	return payload
 }
 
 func (q *Query) words() []string {

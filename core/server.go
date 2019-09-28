@@ -19,7 +19,6 @@ type VQLTCPServer struct {
 	ListenPort int64
 	walWriter  *storagePkg.WalFileWriter
 	clients    map[*VQLClient]bool
-	// storage    *storagePkg.MemoryStorage
 }
 
 func NewVQLTCPServer(peer *Peer, listenAddr string, listenPort int64) (*VQLTCPServer, error) {
@@ -30,14 +29,7 @@ func NewVQLTCPServer(peer *Peer, listenAddr string, listenPort int64) (*VQLTCPSe
 		ListenPort: listenPort,
 		clients:    make(map[*VQLClient]bool),
 	}
-	storage = v.StorageInit()
-	v.walWriter = storagePkg.NewWalFileWriter("/tmp")
-	go v.walWriter.Run()
 	return v, nil
-}
-
-func (v *VQLTCPServer) StorageInit() *storagePkg.MemoryStorage {
-	return storagePkg.NewMemoryStorage()
 }
 
 func (v *VQLTCPServer) clientNextID() int64 {
@@ -121,6 +113,12 @@ func (v *VQLTCPServer) Shutdown() {
 	v.walWriter.Close()
 	<-v.walWriter.WaitTerminate
 	fmt.Println("[vql] shutdown")
+}
+
+func infoStorage() (info []string) {
+	info = append(info, "# Keyspace")
+	info = append(info, fmt.Sprintf("db0:keys=%d", len(storage.Keys("*"))))
+	return info
 }
 
 func infoWal(v *VQLTCPServer) (info []string) {

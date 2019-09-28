@@ -20,12 +20,12 @@ const (
 )
 
 var (
-	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile to file")
-	walDir         = flag.String("wal-dir", "/var/lib/velocidb/wals", "WAL storage directory")
-	listenPeerFlag = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
-	listenVQLFlag  = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
-	peers          = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")
-	disableVQL     = flag.Bool("disable-vql", false, "Disable VQL server")
+	cpuprofile       = flag.String("cpuprofile", "", "write cpu profile to file")
+	walDir           = flag.String("wal-dir", "/var/lib/velocidb/wals", "WAL storage directory")
+	listenPeerFlag   = flag.String("peer-listen", "", fmt.Sprintf("Peer server listen host:port (default: %s)", defaultListenPeer))
+	listenVQLFlag    = flag.String("vql-listen", "", fmt.Sprintf("VQL server listen host:port (default: %s)", defaultListenVQL))
+	peers            = flag.String("peers", "", "Lisf of peers addr:port,addr1:port")
+	disableVQLServer = flag.Bool("disable-vql-server", false, "Disable VQL server")
 )
 
 type Config struct {
@@ -127,7 +127,7 @@ func main() {
 	go peer.Run()
 	defer peer.Shutdown()
 
-	if !*disableVQL {
+	if !*disableVQLServer {
 		v, err := core.NewVQLTCPServer(peer, hostVQL, portVQL)
 		if err != nil {
 			panic(err)

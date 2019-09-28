@@ -9,7 +9,10 @@ import (
 	"time"
 
 	tcp "github.com/bjorand/velocidb/tcp"
+
+	storagePkg "github.com/bjorand/velocidb/storage"
 	utils "github.com/bjorand/velocidb/utils"
+
 	"github.com/google/uuid"
 )
 
@@ -19,7 +22,7 @@ const (
 )
 
 var (
-	PEER_STATUS_TEXT = map[int64]string{
+	PEER_STATUS_TEXT = map[int]string{
 		PEER_STATUS_NO_CONNECTION: "No connection",
 		PEER_STATUS_CONNECTED:     "Connected",
 	}
@@ -46,6 +49,7 @@ type Peer struct {
 	Mesh             *Mesh
 	broadcastBulkVQL chan []byte
 	vqlClient        *VQLClient
+	storage          *storagePkg.MemoryStorage
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {
@@ -60,6 +64,8 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 		Stats:            &Stats{},
 		Mesh:             newMesh(),
 		broadcastBulkVQL: make(chan []byte, 1024),
+		storage:          storagePkg.NewMemoryStorage(),
+		walWriter:        storagePkg.NewWalFileWriter("/tmp"),
 	}, nil
 }
 
@@ -82,7 +88,7 @@ func (p *Peer) Info() (info map[string]interface{}) {
 
 }
 
-func (p *Peer) ConnectionStatus() int64 {
+func (p *Peer) ConnectionStatus() int {
 	if p.RemoteConn != nil {
 		return PEER_STATUS_CONNECTED
 	}
@@ -135,9 +141,9 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 			}
 			continue
 		}
-		fmt.Printf("[peer %s] Connected\n", newPeer.connString())
 		newPeer.RemoteConn = conn
 		p.Mesh.register <- newPeer
+		fmt.Printf("[peer %s] Connected\n", newPeer.connString())
 		pause = initialPause
 		defer conn.Close()
 		for {
@@ -217,6 +223,7 @@ func (p *Peer) Run() {
 	if err != nil {
 		panic(err)
 	}
+	go p.walWriter.Run()
 	s.Run("peer", p.HandlePeerRequest)
 }
 
