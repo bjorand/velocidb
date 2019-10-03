@@ -5,5 +5,6 @@ import (
 )
 
 var (
-	lock = sync.RWMutex{}
+	lock = sync.Mutex{}
+	// client *VQLClient
 )

@@ -6,14 +6,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/bjorand/velocidb/utils"
 )
 
 type Query struct {
 	raw         []byte
 	id          string
 	parsed      [][]byte
+	p           *Peer
 	c           *VQLClient
 	hasMoreData int
 }
@@ -69,21 +68,21 @@ func (q *Query) args() []string {
 }
 
 func (q *Query) Set(key string, value []byte) {
-	q.c.vqlTCPServer.Peer.storage.Set(key, value)
+	q.p.storage.Set(key, value)
 	q.WalWrite()
-
 }
 
 func (q *Query) Incr(key string) ([]byte, error) {
-	v, err := q.c.vqlTCPServer.Peer.storage.Incr(key)
+	v, err := q.p.storage.Incr(key)
 	if err != nil {
 		return nil, err
 	}
+	q.WalWrite()
 	return v, nil
 }
 
 func (q *Query) Decr(key string) ([]byte, error) {
-	v, err := q.c.vqlTCPServer.Peer.storage.Decr(key)
+	v, err := q.p.storage.Decr(key)
 	if err != nil {
 		return nil, err
 	}
@@ -91,13 +90,13 @@ func (q *Query) Decr(key string) ([]byte, error) {
 }
 
 func (q *Query) Get(key string) []byte {
-	return q.c.vqlTCPServer.Peer.storage.Get(key)
+	return q.p.storage.Get(key)
 }
 
 func (q *Query) Del(keys ...string) []byte {
 	var deletedCount int
 	for _, key := range keys {
-		deleted := q.c.vqlTCPServer.Peer.storage.Del(key)
+		deleted := q.p.storage.Del(key)
 		if deleted {
 			deletedCount = deletedCount + 1
 		}
@@ -106,8 +105,8 @@ func (q *Query) Del(keys ...string) []byte {
 }
 
 func (q *Query) WalWrite() {
-	q.c.vqlTCPServer.Peer.walWriter.SyncWrite(q.raw)
-	q.c.vqlTCPServer.Peer.PublishVQL(q.raw)
+	q.p.walWriter.SyncWrite(q.raw)
+	q.p.PublishVQL(q.raw)
 }
 
 func (q *Query) Execute() (*Response, error) {
@@ -115,16 +114,27 @@ func (q *Query) Execute() (*Response, error) {
 	args := q.args()
 	syntax := map[string]map[string]func() error{
 		"peer": {
+			"id": func() error {
+				if len(args) > 1 {
+					return fmt.Errorf("Too many arguments")
+				}
+				r.PayloadString([]byte(q.p.ID))
+				r.Type = typeBulkString
+				return nil
+			},
 			"list": func() error {
-				for peer := range q.c.vqlTCPServer.Peer.Mesh.Peers {
-					r.Payload = append(r.Payload, []byte(fmt.Sprintf("*%s\t%s:%d\tConnection:%s\tBytesIn:%s\n",
+				var peers []string
+				for peer := range q.p.Mesh.Peers {
+					peers = append(peers, fmt.Sprintf("id=%s addr=%s:%d connection=%s bytes_in=%d",
 						peer.ID,
 						peer.ListenAddr,
 						peer.ListenPort,
 						PEER_STATUS_TEXT[peer.ConnectionStatus()],
-						utils.HumanSizeBytes(peer.Stats.BytesIn),
-					)))
+						peer.Stats.BytesIn,
+					))
 				}
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(peers, "\r\n"))))
+				r.Type = typeBulkString
 				return nil
 			},
 			"connect": func() error {
@@ -132,7 +142,7 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf(Help("peer"))
 				}
 				go func() {
-					q.c.vqlTCPServer.Peer.ConnectToPeerAddr(args[1])
+					q.p.ConnectToPeerAddr(args[1])
 				}()
 				r.OK()
 				return nil
@@ -141,20 +151,28 @@ func (q *Query) Execute() (*Response, error) {
 				if len(args) < 2 {
 					return fmt.Errorf(Help("peer"))
 				}
-				peer := q.c.vqlTCPServer.Peer.Mesh.GetPeerByKey(args[1])
+				peer := q.p.Mesh.GetPeerByKey(args[1])
 				if peer != nil {
-					q.c.vqlTCPServer.Peer.RemovePeer(peer)
+					q.p.RemovePeer(peer)
 					r.OK()
 					return nil
 				}
 				return fmt.Errorf("Peer %s not found in peer list", args[1])
+			},
+			"get": func() error {
+				if len(args) > 2 {
+					return fmt.Errorf("Too many arguments")
+				}
+				r.PayloadString([]byte(q.p.ID))
+				r.Type = typeBulkString
+				return nil
 			},
 		},
 		"client": {
 			"list": func() error {
 				r.Type = typeBulkString
 				var clients []string
-				for c := range q.c.vqlTCPServer.clients {
+				for c := range q.p.vqlTCPServer.clients {
 					clients = append(clients, fmt.Sprintf("id=%d addr=%s name=%s", c.id, c.conn.RemoteAddr().String(), c.name))
 				}
 				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(clients, "\r\n"))))
@@ -195,6 +213,11 @@ func (q *Query) Execute() (*Response, error) {
 			},
 		},
 		"info": {
+			"peer": func() error {
+				r.Type = typeBulkString
+				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoPeer(q.p), "\r\n"))))
+				return nil
+			},
 			"server": func() error {
 				r.Type = typeBulkString
 				r.PayloadString([]byte(fmt.Sprintf("%s\r\n", strings.Join(infoServer(q.c.vqlTCPServer.Peer), "\r\n"))))
@@ -217,6 +240,7 @@ func (q *Query) Execute() (*Response, error) {
 			},
 			"": func() error {
 				var info []string
+				info = append(info, infoPeer(q.p)...)
 				info = append(info, infoServer(q.c.vqlTCPServer.Peer)...)
 				info = append(info, infoStorage(q.c.vqlTCPServer)...)
 				info = append(info, infoVQL(q.c.vqlTCPServer)...)
@@ -265,6 +289,7 @@ func (q *Query) Execute() (*Response, error) {
 					return fmt.Errorf("Too few arguments")
 				}
 				q.Set(args[0], q.parsed[2])
+
 				r.OK()
 				return nil
 			},
@@ -300,7 +325,6 @@ func (q *Query) Execute() (*Response, error) {
 					return err
 				}
 				r.PayloadString([]byte(v))
-				q.WalWrite()
 				r.Type = typeInteger
 				return nil
 			},

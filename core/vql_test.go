@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-var (
-	client *VQLClient
-)
-
 func TestSanitizeTextInput(t *testing.T) {
 	input := " TEST   \r\n\n   \n"
 	output := SanitizeTextInput([]byte(input))
@@ -21,7 +17,7 @@ func TestSanitizeTextInput(t *testing.T) {
 }
 
 func TestVQLTCPServerParseRawQuery(t *testing.T) {
-
+	client := setup()
 	input := []byte("ping\r\n")
 	q, err := client.ParseRawQuery(input)
 	if err != nil {
@@ -55,7 +51,7 @@ func TestVQLTCPServerParseRawQuery(t *testing.T) {
 }
 
 func TestVQLPing(t *testing.T) {
-	setup()
+	client := setup()
 	var r *Response
 	var q *Query
 	var err error
@@ -92,7 +88,7 @@ func TestVQLPing(t *testing.T) {
 }
 
 func TestVQLQuit(t *testing.T) {
-	setup()
+	client := setup()
 	input := []byte("quit\r\n")
 	q, err := client.ParseRawQuery(input)
 	if err != nil {
@@ -110,7 +106,7 @@ func TestVQLQuit(t *testing.T) {
 }
 
 func TestVQLScan(t *testing.T) {
-	setup()
+	client := setup()
 	var err error
 	var q *Query
 	var r *Response
@@ -183,7 +179,7 @@ func TestVQLQueries(t *testing.T) {
 		"client getname", "$6\r\nfoobar\r\n",
 		"ping foobar", "$6\r\nfoobar\r\n",
 	}
-	setup()
+	client := setup()
 	for i := 0; i < len(suites); i++ {
 		input := []byte(suites[i])
 		expected := suites[i+1]

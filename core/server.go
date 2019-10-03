@@ -27,6 +27,7 @@ func NewVQLTCPServer(peer *Peer, listenAddr string, listenPort int64) (*VQLTCPSe
 		ListenPort: listenPort,
 		clients:    make(map[*VQLClient]bool),
 	}
+	peer.vqlTCPServer = v
 	return v, nil
 }
 
@@ -70,7 +71,7 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 		// Read the incoming connection into the buffer.
 		reqLen, err := conn.Read(buf)
 		if err != nil {
-			fmt.Println("[vql] -Error reading:", err.Error())
+			fmt.Println("[vql] Error reading:", err.Error())
 			break
 		}
 		if hasMoreData > 0 {
@@ -84,7 +85,7 @@ func (v *VQLTCPServer) HandleVQLRequest(s *tcp.TCPServer, conn net.Conn) {
 		}
 		// extended read finished
 		if hasMoreData == 0 {
-			query, err = client.ParseRawQuery(buf[:reqLen])
+			query, err = v.Peer.ParseRawQuery(client, buf[:reqLen])
 			if err != nil {
 				conn.Write([]byte(fmt.Sprintf("-%s\r\n", err.Error())))
 				continue

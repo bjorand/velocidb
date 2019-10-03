@@ -26,9 +26,10 @@ func (s *TCPServer) Run(id string, handleRequesFunc func(*TCPServer, net.Conn)) 
 		fmt.Printf("[%s] Error listening: %s\n", id, err.Error())
 		os.Exit(1)
 	}
+	s.Port = int64(l.Addr().(*net.TCPAddr).Port)
 	defer l.Close()
 	rand.Seed(time.Now().Unix())
-	fmt.Printf("[%s] Listening on:%d\n", id, s.Port)
+	fmt.Printf("[%s] Listening on %s:%d\n", id, s.Host, s.Port)
 	for {
 		conn, err := l.Accept()
 		if err != nil {

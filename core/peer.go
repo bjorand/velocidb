@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"runtime"
-	"strings"
 	"time"
 
 	tcp "github.com/bjorand/velocidb/tcp"
@@ -48,9 +47,10 @@ type Peer struct {
 	Name             string
 	Mesh             *Mesh
 	broadcastBulkVQL chan []byte
-	vqlClient        *VQLClient
 	storage          *storagePkg.MemoryStorage
 	walWriter        *storagePkg.WalFileWriter
+	tcpServer        *tcp.TCPServer
+	vqlTCPServer     *VQLTCPServer
 }
 
 func NewPeer(listenAddr string, port int64) (*Peer, error) {
@@ -70,7 +70,20 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 	}, nil
 }
 
+func NewRemotePeer(listenAddr string, port int64) (*Peer, error) {
+	return &Peer{
+		ListenAddr:       listenAddr,
+		ListenPort:       port,
+		Stats:            &Stats{},
+		Mesh:             newMesh(),
+		broadcastBulkVQL: make(chan []byte, 1024),
+	}, nil
+}
+
 func (p *Peer) connString() string {
+	if p.tcpServer != nil {
+		return fmt.Sprintf("%s:%d", p.tcpServer.Host, p.tcpServer.Port)
+	}
 	return fmt.Sprintf("%s:%d", p.ListenAddr, p.ListenPort)
 
 }
@@ -96,18 +109,17 @@ func (p *Peer) ConnectionStatus() int {
 	return PEER_STATUS_NO_CONNECTION
 }
 
-func (p *Peer) ConnectToPeerAddr(peerConnString string) error {
+func (p *Peer) ConnectToPeerAddr(peerConnString string) (*Peer, error) {
 	peerAddr, peerPort, err := utils.SplitHostPort(peerConnString)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	newPeer := &Peer{
-		ListenAddr: peerAddr,
-		ListenPort: peerPort,
-		Stats:      &Stats{},
+	newPeer, err := NewRemotePeer(peerAddr, peerPort)
+	if err != nil {
+		return nil, err
 	}
 	go p.connectToPeer(newPeer)
-	return nil
+	return newPeer, nil
 }
 
 func (p *Peer) Key() string {
@@ -125,13 +137,17 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 	defer func() {
 		p.Mesh.deregister <- newPeer
 	}()
-	initialPause := 2
+	p.Mesh.register <- newPeer
+	fmt.Printf("[mesh] register peer %s\n", newPeer.connString())
+	fmt.Println(len(p.Mesh.Peers))
+	initialPause := 0
 	maxPause := 60
 	pause := initialPause
 	for {
 		if newPeer.RemoveSignal {
 			break
 		}
+		fmt.Printf("[peer] Connecting to peer %s\n", newPeer.connString())
 		newPeer.RemoteConn = nil
 		time.Sleep(time.Duration(pause) * time.Second)
 		conn, err := net.Dial("tcp4", newPeer.connString())
@@ -143,7 +159,6 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 			continue
 		}
 		newPeer.RemoteConn = conn
-		p.Mesh.register <- newPeer
 		fmt.Printf("[peer %s] Connected\n", newPeer.connString())
 		pause = initialPause
 		defer conn.Close()
@@ -182,12 +197,21 @@ type PeerResponse struct {
 	DisconnectSignal bool
 }
 
+func infoPeer(p *Peer) (info []string) {
+	info = append(info, "# VQL")
+	info = append(info, fmt.Sprintf("id:%s", p.ID))
+	info = append(info, fmt.Sprintf("listen_addr:%s", p.ListenAddr))
+	info = append(info, fmt.Sprintf("listen_port:%d", p.ListenPort))
+	return info
+}
+
 func (p *Peer) ParsePeerResponse(from *Peer, input []byte) (*PeerResponse, error) {
-	s := string(input)
-	if strings.HasPrefix(s, "+ID") {
-		idArr := strings.Split(s, " ")
-		from.ID = idArr[1]
-	}
+	fmt.Println("Got peer response", string(input))
+	// s := string(input)
+	// if strings.HasPrefix(s, "+ID") {
+	// 	idArr := strings.Split(s, " ")
+	// 	from.ID = idArr[1]
+	// }
 	return &PeerResponse{}, nil
 }
 
@@ -199,7 +223,7 @@ func (r *PeerRequest) Execute() error {
 	return nil
 }
 
-func (p *Peer) ParsePeerRequest(input []byte) (*PeerRequest, error) {
+func (p *Peer) ParsePeerQuery(c *VQLClient, input []byte) (*PeerRequest, error) {
 	// switch string(input) {
 	// case "PEER ID":
 	// 	return &PeerRequest{
@@ -208,7 +232,8 @@ func (p *Peer) ParsePeerRequest(input []byte) (*PeerRequest, error) {
 	// default:
 	// 	fmt.Println("Unknown peer request:", string(input))
 	// }
-	q, err := p.vqlClient.ParseRawQuery(input)
+	fmt.Println("----------", input)
+	q, err := p.ParseRawQuery(c, input)
 	if err != nil {
 		fmt.Printf("[peer] Cannot parse vql query: %+v", err)
 	}
@@ -216,6 +241,7 @@ func (p *Peer) ParsePeerRequest(input []byte) (*PeerRequest, error) {
 	if err != nil {
 		fmt.Printf("Cannot execute query: %+v", err)
 	}
+
 	return &PeerRequest{}, nil
 }
 
@@ -224,18 +250,42 @@ func (p *Peer) Run() {
 	if err != nil {
 		panic(err)
 	}
+	go p.Mesh.registrator()
 	go p.walWriter.Run()
 	defer func() {
 		p.walWriter.Close()
 
 	}()
+	p.tcpServer = s
 	s.Run("peer", p.HandlePeerRequest)
 }
 
 func (p *Peer) HandlePeerRequest(s *tcp.TCPServer, conn net.Conn) {
 	fmt.Printf("[peer] Serving %s\n", conn.RemoteAddr().String())
 	// Make a buffer to hold incoming data.
+	c := NewVQLClient(-1, fmt.Sprintf("peer-%s", p.ID), conn, p.vqlTCPServer)
+
+	remotePeerAddr, remotePeerPort, err := utils.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	remotePeer, err := NewRemotePeer(remotePeerAddr, remotePeerPort)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	remotePeer.RemoteConn = conn
+	defer func() {
+		p.Mesh.deregister <- remotePeer
+	}()
+	p.Mesh.register <- remotePeer
 	for {
+		// if remotePeer.ID == "" {
+		// 	// conn.Write([]byte("GET PEER ID\r\n"))
+		// 	fmt.Fprintf(conn, "PEER ID"+"\n")
+		// 	fmt.Println("ASK ID")
+		// }
 		buf := make([]byte, 1024)
 		// Read the incoming connection into the buffer.
 		reqLen, err := conn.Read(buf)
@@ -243,7 +293,11 @@ func (p *Peer) HandlePeerRequest(s *tcp.TCPServer, conn net.Conn) {
 			fmt.Println("[peer] Error reading:", err.Error())
 			break
 		}
-		peerRequest, err := p.ParsePeerRequest(buf[:reqLen])
+		// if remotePeer.ID == "" {
+		// 	remotePeer.ID = string(buf[:reqLen])
+		// 	continue
+		// }
+		peerRequest, err := p.ParsePeerQuery(c, buf[:reqLen])
 		if err != nil {
 			conn.Write([]byte(fmt.Sprintf("%s\n", err.Error())))
 			break

@@ -1,19 +1,20 @@
 package core
 
-var (
-	testPeer *Peer
-)
-
-func setup() {
+func setup() *VQLClient {
 	var err error
-	testPeer, err = NewPeer("localhost", 26000)
+	peer1, err := NewPeer("localhost", 0)
 	if err != nil {
 		panic(err)
 	}
-	// var err error
-	client = &VQLClient{}
-	client.vqlTCPServer, err = NewVQLTCPServer(testPeer, "localhost", 26001)
+	go peer1.Run()
+
+	vqlTCPServer, err := NewVQLTCPServer(peer1, "localhost", 0)
 	if err != nil {
 		panic(err)
 	}
+	go vqlTCPServer.Run()
+
+	client := NewVQLClient(1, "test-client-1", nil, vqlTCPServer)
+
+	return client
 }

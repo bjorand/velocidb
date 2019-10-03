@@ -9,8 +9,8 @@ type Mesh struct {
 func newMesh() *Mesh {
 	return &Mesh{
 		Peers:      make(map[*Peer]bool),
-		register:   make(chan *Peer, 2),
-		deregister: make(chan *Peer, 2),
+		register:   make(chan *Peer),
+		deregister: make(chan *Peer),
 	}
 }
 
@@ -19,7 +19,6 @@ func (m *Mesh) registrator() {
 		select {
 		case p := <-m.register:
 			m.Peers[p] = true
-
 		case p := <-m.deregister:
 			delete(m.Peers, p)
 		default:
