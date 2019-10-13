@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 )
@@ -10,12 +9,20 @@ type Response struct {
 	Payload          [][]byte
 	DisconnectSignal bool
 	Type             string
+	q                *Query
 }
 
-func NewResponse() *Response {
+func NewResponse(q *Query) *Response {
 	return &Response{
-		// Payload: make([][]byte),
+		q:       q,
+		Payload: make([][]byte, 1024),
 	}
+}
+
+func NewPeerResponseError(q *Query, err error) *Response {
+	r := NewResponse(q)
+	r.Payload = append(r.Payload, []byte(fmt.Sprintf("-%s\r\n", err.Error())))
+	return r
 }
 
 func (r *Response) PayloadString(s []byte) {
@@ -37,17 +44,6 @@ func Sanitize(data []byte) []byte {
 	// d := string(data)
 	// return strings.Trim(d, " \r\n")
 	return data
-}
-
-func ParseRawResponse(data []byte) (*Response, error) {
-	r := NewResponse()
-	if len(r.Payload) > 0 {
-		r.Payload[0] = Sanitize(data)
-	}
-	// if r.Payload == "+ATH0" {
-	// 	r.DisconnectSignal = true
-	// }
-	return r, nil
 }
 
 func (r *Response) Size() int {
@@ -84,7 +80,6 @@ func (r *Response) isNullBulkString() bool {
 
 func (r *Response) FormattedPayload() []byte {
 	var payload []byte
-
 	if len(r.Payload) == 1 && !r.isArray() {
 
 		if r.isBulkString() {
@@ -102,18 +97,33 @@ func (r *Response) FormattedPayload() []byte {
 		payload = append(payload, "\r\n"...)
 
 	} else {
-		payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
-		for i := 0; i < len(r.Payload); i++ {
-
-			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
-				payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
-			}
-			payload = append(payload, r.Payload[i]...)
-			if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
-				payload = append(payload, []byte("\r\n")...)
-			}
-		}
-
+		// payload = []byte(fmt.Sprintf("*%d\r\n", len(r.Payload)))
+		// for i := 0; i < len(r.Payload); i++ {
+		// 	if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
+		// 		payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(r.Payload[i])))...)
+		// 	}
+		// 	payload = append(payload, r.Payload[i]...)
+		// 	if !bytes.HasPrefix(r.Payload[i], []byte("*")) {
+		// 		payload = append(payload, []byte("\r\n")...)
+		// 	}
+		// }
+		payload = formattedArray(r.Payload)
 	}
+	return payload
+}
+
+func (r *Response) PeerResponseEncode() []byte {
+	var qid string
+	switch {
+	case r.q == nil:
+		qid = "-1"
+	default:
+		qid = r.q.id
+	}
+	var data [][]byte
+	data = append(data, []byte(fmt.Sprintf("id=%s", qid)))
+	data = append(data, r.FormattedPayload())
+	payload := append(PEER_RESPONSE_TYPE, controlByte...)
+	payload = append(payload, formattedArray(data)...)
 	return payload
 }

@@ -19,9 +19,9 @@ func (m *Mesh) registrator() {
 		select {
 		case p := <-m.register:
 			m.Peers[p] = true
+			// go p.getRemoteID(remotePeer)
 		case p := <-m.deregister:
 			delete(m.Peers, p)
-		default:
 		}
 	}
 }

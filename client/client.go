@@ -25,6 +25,17 @@ type Client struct {
 	prompt string
 }
 
+func clientFormatter(data []byte) (*core.Response, error) {
+	r := core.NewResponse(nil)
+	if len(r.Payload) > 0 {
+		r.Payload[0] = core.Sanitize(data)
+	}
+	// if r.Payload == "+ATH0" {
+	// 	r.DisconnectSignal = true
+	// }
+	return r, nil
+}
+
 func reconnect(server string, next int64) {
 	if next < 0 {
 		return
@@ -72,7 +83,7 @@ func connect(server string, next int64, firstConnection bool) {
 			reconnect(server, next)
 		}
 		next = initalReconnectDelay
-		resp, err := core.ParseRawResponse(reply[:n])
+		resp, err := clientFormatter(reply[:n])
 		if err != nil {
 			fmt.Println(err)
 			continue

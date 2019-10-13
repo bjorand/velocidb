@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ type Query struct {
 	p           *Peer
 	c           *VQLClient
 	hasMoreData int
+	FromPeer    bool
 }
 
 func readInt(data []byte, cursor int) (int, int) {
@@ -36,9 +36,9 @@ func readInt(data []byte, cursor int) (int, int) {
 func formattedArray(items [][]byte) []byte {
 	payload := []byte(fmt.Sprintf("*%d\r\n", len(items)))
 	for i := 0; i < len(items); i++ {
-		if !bytes.HasPrefix(items[i], []byte("*")) {
-			payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(items[i])))...)
-		}
+		// if !bytes.HasPrefix(items[i], []byte("*")) {
+		payload = append(payload, []byte(fmt.Sprintf("$%d\r\n", len(items[i])))...)
+		// }
 		payload = append(payload, items[i]...)
 		payload = append(payload, []byte("\r\n")...)
 	}
@@ -106,11 +106,13 @@ func (q *Query) Del(keys ...string) []byte {
 
 func (q *Query) WalWrite() {
 	q.p.walWriter.SyncWrite(q.raw)
-	q.p.PublishVQL(q.raw)
+	if !q.FromPeer {
+		q.p.PublishVQL(q)
+	}
 }
 
 func (q *Query) Execute() (*Response, error) {
-	r := NewResponse()
+	r := NewResponse(q)
 	args := q.args()
 	syntax := map[string]map[string]func() error{
 		"peer": {
@@ -475,4 +477,13 @@ func (q *Query) Execute() (*Response, error) {
 		return r, err
 	}
 	return nil, nil
+}
+
+func (q *Query) PeerQueryEncode() []byte {
+	var data [][]byte
+	data = append(data, []byte(fmt.Sprintf("id=%s", q.id)))
+	data = append(data, q.raw)
+	payload := append(PEER_QUERY_TYPE, controlByte...)
+	payload = append(payload, formattedArray(data)...)
+	return payload
 }

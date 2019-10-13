@@ -26,6 +26,7 @@ func TestWalFileWriter(t *testing.T) {
 	defer teardown()
 	wfw := NewWalFileWriter(walDirTest)
 	go wfw.Run()
+
 	wfw.SyncWrite([]byte("foobar"))
 
 	time.Sleep(1 * time.Second)
