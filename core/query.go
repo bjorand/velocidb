@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Query struct {
@@ -15,6 +17,17 @@ type Query struct {
 	c           *VQLClient
 	hasMoreData int
 	FromPeer    bool
+}
+
+func NewSimpleQuery(q string) *Query {
+	id, err := uuid.NewUUID()
+	if err != nil {
+		panic(err)
+	}
+	return &Query{
+		raw: []byte(q),
+		id:  id.String(),
+	}
 }
 
 func readInt(data []byte, cursor int) (int, int) {

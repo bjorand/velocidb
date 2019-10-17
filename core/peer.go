@@ -11,6 +11,7 @@ import (
 
 	tcp "github.com/bjorand/velocidb/tcp"
 
+	logger "github.com/bjorand/velocidb/logger"
 	storagePkg "github.com/bjorand/velocidb/storage"
 	utils "github.com/bjorand/velocidb/utils"
 
@@ -64,6 +65,8 @@ type Peer struct {
 	walWriter             *storagePkg.WalFileWriter
 	tcpServer             *tcp.TCPServer
 	vqlTCPServer          *VQLTCPServer
+	updateTrigger         chan bool
+	l                     *logger.Logger
 }
 
 func (p *Peer) ParseRawQuery(c *VQLClient, data []byte) (*Query, error) {
@@ -125,8 +128,9 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 	if err != nil {
 		return nil, err
 	}
+	peerID := id.String()
 	return &Peer{
-		ID:                id.String(),
+		ID:                peerID,
 		ListenAddr:        listenAddr,
 		ListenPort:        port,
 		Stats:             &Stats{},
@@ -135,6 +139,7 @@ func NewPeer(listenAddr string, port int64) (*Peer, error) {
 		queryWaiting:      make(map[string]chan *Response),
 		storage:           storagePkg.NewMemoryStorage(),
 		walWriter:         storagePkg.NewWalFileWriter(walDir),
+		l:                 logger.NewLogger(logger.Fields{"peer": peerID, "self": true}),
 	}, nil
 }
 
@@ -149,6 +154,7 @@ func NewRemotePeer(listenAddr string, port int64) (*Peer, error) {
 		queryWaiting:          make(map[string]chan *Response),
 		responseQueueToSend:   make(chan *Response, 1024),
 		queryResponseReceived: make(chan []byte, 1024),
+		updateTrigger:         make(chan bool, 1024),
 	}, nil
 }
 
@@ -210,7 +216,7 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 		p.Mesh.deregister <- newPeer
 	}()
 	p.Mesh.register <- newPeer
-	fmt.Printf("[mesh] register peer %s\n", newPeer.connString())
+	fmt.Printf("[mesh] register peer %s\n", newPeer.ID)
 	// initialPause := 0
 	// maxPause := 60
 	// pause := initialPause
@@ -239,11 +245,12 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 	c := NewVQLClient(-1, fmt.Sprintf("peer-%s", p.ID), conn, p.vqlTCPServer)
 
 	for i := 0; i < TCP_WORKERS_PER_PEER; i++ {
-		go p.ResponseReader(newPeer, c)
+		go p.ResponseReader(i, newPeer, c)
 		go p.ResponseWriter(newPeer, c)
 		go p.QueryReader(newPeer, c)
 		go p.QueryWriter(newPeer, c)
 	}
+	go p.Updater(newPeer)
 
 	defer func() {
 		defer conn.Close()
@@ -251,6 +258,7 @@ func (p *Peer) connectToPeer(newPeer *Peer) {
 		close(newPeer.responseQueueToSend)
 		close(newPeer.broadcastVQLQuery)
 		close(newPeer.gotRawQueryFromPeer)
+		close(newPeer.updateTrigger)
 	}()
 
 	for {
@@ -328,7 +336,7 @@ func (p *Peer) ParsePeerResponse(c *VQLClient, input []byte) (*Response, error) 
 	if err != nil {
 		return nil, err
 	}
-	if len(q.parsed) <= 1 {
+	if len(q.parsed) < 2 {
 		fmt.Println(string(bytes.Join(q.parsed, []byte(""))))
 		return nil, fmt.Errorf("no response found")
 	}
@@ -342,6 +350,8 @@ func (p *Peer) ParsePeerResponse(c *VQLClient, input []byte) (*Response, error) 
 	q = &Query{}
 	q.id = rid
 	r := NewResponse(q)
+	r.Payload = make([][]byte, 1)
+	// r.Payload[0] = q.parsed[1]
 	return r, nil
 
 }
@@ -376,10 +386,32 @@ func (p *Peer) ParsePeerQuery(c *VQLClient, input []byte) (*Query, error) {
 	return q, nil
 }
 
-func (p *Peer) ResponseReader(remotePeer *Peer, c *VQLClient) {
-	fmt.Println("Starting response reader for peer", remotePeer.ID)
+func (p *Peer) RemoteExecute(remotePeer *Peer, q *Query) (*Response, error) {
+	lock.Lock()
+	remotePeer.queryWaiting[q.id] = make(chan *Response)
+	lock.Unlock()
+	defer delete(remotePeer.queryWaiting, q.id)
+
+	select {
+	case remotePeer.broadcastVQLQuery <- q:
+	default:
+	}
+	fmt.Println("waiting query", q.id)
+	select {
+	case resp := <-remotePeer.queryWaiting[q.id]:
+		fmt.Println("got response", resp.q.id)
+		return resp, nil
+	case <-time.After(QUERY_TIMEOUT * time.Second):
+		return nil, fmt.Errorf("timeout waiting response for query %s", q.id)
+	}
+
+}
+
+func (p *Peer) ResponseReader(id int, remotePeer *Peer, c *VQLClient) {
+	l := p.l.NewLogger(logger.Fields{"resp_reader": id, "remote_peer": remotePeer.connString()})
+	l.Debug(nil, "Starting response reader")
 	defer func() {
-		fmt.Println("Exited response reader for peer", remotePeer.ID)
+		l.Debug(nil, "Exited response reader")
 	}()
 	for {
 		select {
@@ -456,21 +488,17 @@ func (p *Peer) QueryWriter(remotePeer *Peer, c *VQLClient) {
 				return
 			}
 			data := q.PeerQueryEncode()
-			fmt.Println("waiting query", q.id)
-			lock.Lock()
-			remotePeer.queryWaiting[q.id] = make(chan *Response)
-			lock.Unlock()
 			_, err := remotePeer.RemoteConn.Write(data)
 			if err != nil {
 				fmt.Println(err)
 				return
 			}
-			select {
-			case resp := <-remotePeer.queryWaiting[q.id]:
-				fmt.Println("got response", resp.q.id)
-			case <-time.After(QUERY_TIMEOUT * time.Second):
-				fmt.Println("timeout waiting response for query", q.id)
-			}
+			// select {
+			// case resp := <-remotePeer.queryWaiting[q.id]:
+			// 	fmt.Println("got response", resp.q.id)
+			// case <-time.After(QUERY_TIMEOUT * time.Second):
+			// 	fmt.Println("timeout waiting response for query", q.id)
+			// }
 		}
 	}
 }
@@ -550,7 +578,7 @@ func (p *Peer) HandlePeerRequest(s *tcp.TCPServer, conn net.Conn) {
 	remotePeer.RemoteConn = conn
 
 	for i := 0; i < TCP_WORKERS_PER_PEER; i++ {
-		go p.ResponseReader(remotePeer, c)
+		go p.ResponseReader(i, remotePeer, c)
 		go p.ResponseWriter(remotePeer, c)
 		go p.QueryReader(remotePeer, c)
 		go p.QueryWriter(remotePeer, c)
@@ -609,6 +637,46 @@ func (p *Peer) Ready() bool {
 	return true
 }
 
+func (p *Peer) Updater(remotePeer *Peer) {
+	fmt.Println("Peer updater started")
+	defer func() {
+		fmt.Println("Peer updater exited")
+	}()
+	if remotePeer.ID == "" {
+		select {
+		case remotePeer.updateTrigger <- true:
+		default:
+		}
+	}
+	for {
+		select {
+		case _, more := <-remotePeer.updateTrigger:
+			if !more {
+				return
+			}
+			fmt.Println("Querying peer info of", remotePeer.connString())
+			q := NewSimpleQuery("peer id\r\n")
+
+			resp, err := p.RemoteExecute(remotePeer, q)
+			if err != nil {
+				remotePeer.RemoteConn.Close()
+				return
+			}
+			fmt.Println("-----------", string(resp.FormattedPayload()))
+
+			remotePeer.ID = string(resp.FormattedPayload())
+		}
+	}
+	// q := NewSimpleQuery("PEER ID")
+	// select {
+	// case p.broadcastVQLQuery <- q:
+	// 	fmt.Println("vql published to peer", p.ID)
+	// default:
+	// }
+	// // resp := <-remotePeer.queryWaiting[r.q.id]
+	// return nil
+}
+
 func (p *Peer) PublishVQL(query *Query) {
 	// TODO: publish vql to the Peer Leader only who will dispatch query to
 	// followers.
@@ -617,9 +685,9 @@ func (p *Peer) PublishVQL(query *Query) {
 	// It reduces network usage in high latency networks
 
 	for p := range p.Mesh.Peers {
-		// if !p.Ready() {
-		// 	continue
-		// }
+		if !p.Ready() {
+			continue
+		}
 		select {
 		case p.broadcastVQLQuery <- query:
 			fmt.Println("vql published to peer", p.ID)
